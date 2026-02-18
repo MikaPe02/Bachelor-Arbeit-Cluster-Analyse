@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# VS Code
+.vscode/
+
+# Environments
+.venv/
+.env/
+conda-meta/
+*.conda
+
+# Raw data (niemals pushen)
+Beispiel Daten/
+**/*.mat
+**/*.c3d
+
+# Outputs
+Skribte/fatigue_dataset.csv
+Skribte/cluster_scores.csv
+Skribte/labels_*.csv
+Skribte/cluster_profiles_*.csv
+
+# OS
+.DS_Store
+Thumbs.db
+
