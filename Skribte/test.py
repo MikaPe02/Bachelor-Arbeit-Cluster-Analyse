@@ -1,1 +1,2 @@
-print("Python läuft aus dem fatigue Conda-Environment.")
+import sys
+print(sys.executable)
