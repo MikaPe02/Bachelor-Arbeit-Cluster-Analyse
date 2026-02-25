@@ -1,0 +1,25 @@
+MAT file: P61_km01_0.mat
+TOP LEVEL: OPTIONS
+========================================
+
+Python type: <class 'scipy.io.matlab._mio5_params.mat_struct'>
+
+FIELDS / VARIABLE NAMES:
+----------------------------------------
+ANTHRO
+AnalyzedLeg
+ConditionFolders
+CutOffGRF
+CutOffMarkers
+ExperimentalSetup
+FilterOrder
+ForcePlateNumber
+ForceTreshold
+FreqKinematics
+RefSpecifier
+RunningSpeed
+TopFolder
+freqGRF
+ftkratio
+mass
+start

@@ -1,0 +1,10 @@
+MAT file: P61_km01_0.mat
+TOP LEVEL: NORMAL
+========================================
+
+Python type: <class 'scipy.io.matlab._mio5_params.mat_struct'>
+
+FIELDS / VARIABLE NAMES:
+----------------------------------------
+HEADER
+R

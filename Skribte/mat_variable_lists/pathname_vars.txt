@@ -1,0 +1,9 @@
+MAT file: P61_km01_0.mat
+TOP LEVEL: pathname
+========================================
+
+Python type: <class 'str'>
+
+FIELDS / VARIABLE NAMES:
+----------------------------------------
+(no fields found — this object may be a plain array/value)

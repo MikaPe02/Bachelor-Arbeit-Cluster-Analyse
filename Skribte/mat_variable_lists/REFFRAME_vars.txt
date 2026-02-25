@@ -1,0 +1,11 @@
+MAT file: P61_km01_0.mat
+TOP LEVEL: REFFRAME
+========================================
+
+Python type: <class 'scipy.io.matlab._mio5_params.mat_struct'>
+
+FIELDS / VARIABLE NAMES:
+----------------------------------------
+Anatomical
+Joint
+Technical_to_Anatomical

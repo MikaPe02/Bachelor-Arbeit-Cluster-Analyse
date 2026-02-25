@@ -1,11 +1,21 @@
-from pathlib import Path
 import sys
+from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]  # .../BA
-SRC = ROOT / "Bachelor-Arbeit-Cluster-Analyse" / "src"
+# add src folder to Python path
+project_root = Path(__file__).resolve().parents[1]
+src_path = project_root / "Bachelor-Arbeit-Cluster-Analyse" / "src"
 
-print("SRC exists:", SRC.exists())
-sys.path.insert(0, str(SRC))
+sys.path.append(str(src_path))
 
-import fatigue
-print("fatigue imported from:", fatigue.__file__)
+
+from fatigue.io import find_data_files
+
+
+folder = r"C:\Users\Mika\Uni\BA\Beispiel Daten"
+
+files = find_data_files(folder)
+
+print("Gefundene Dateien:", len(files))
+
+for f in files[:10]:
+    print(f)

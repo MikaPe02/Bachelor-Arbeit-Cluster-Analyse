@@ -1,0 +1,11 @@
+TOP LEVEL: FP
+Based on: T_P61_km01_0
+
+VARIABLES:
+
+COP
+COP_vid
+FM
+GRFfilt
+GRFfilt_vid
+ind_baseline

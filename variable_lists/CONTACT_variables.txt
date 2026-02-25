@@ -1,0 +1,21 @@
+TOP LEVEL: CONTACT
+Based on: T_P61_km01_0
+
+VARIABLES:
+
+ContactTimes
+ContactTimes_L
+ContactTimes_R
+EVENTS_L
+EVENTS_L_vid
+EVENTS_R
+EVENTS_R_vid
+EVENTSgrf
+EVENTSvid
+FlightTimes
+FlightTimes_L
+FlightTimes_R
+StepFrequency
+StepFrequency_L
+StepFrequency_R
+StrideLength_Right

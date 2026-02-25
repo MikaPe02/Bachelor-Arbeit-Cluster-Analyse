@@ -1,0 +1,17 @@
+TOP LEVEL: KINETICS
+Based on: T_P61_km01_0
+
+VARIABLES:
+
+RightAnkle
+RightAnkleJointPower
+RightAnkleMomentInProximal
+RightHip
+RightHipJointPower
+RightHipMomentInProximal
+RightKnee
+RightKneeJointPower
+RightKneeMomentInProximal
+RightMPJ
+RightMPJMomentInProximal
+RightMPJointPower

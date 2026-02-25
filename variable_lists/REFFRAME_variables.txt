@@ -1,0 +1,17 @@
+TOP LEVEL: REFFRAME
+Based on: Technical_to_Anatomical
+
+VARIABLES:
+
+LeftFoot
+LeftForefoot
+LeftPelvis
+LeftRearfoot
+LeftShank
+LeftThigh
+RightFoot
+RightForefoot
+RightPelvis
+RightRearfoot
+RightShank
+RightThigh

@@ -1,0 +1,9 @@
+TOP LEVEL: R
+Based on: T_P61_km01_0
+
+VARIABLES:
+
+Right_Hip_to_Thigh
+Right_Rearfoot_to_Forefoot
+Right_Shank_to_Rearfoot
+Right_Thigh_to_Shank

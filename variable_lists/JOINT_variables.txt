@@ -1,0 +1,9 @@
+TOP LEVEL: JOINT
+Based on: T_P61_km01_0
+
+VARIABLES:
+
+Right_Ankle
+Right_Hip
+Right_Knee
+Right_MPJ
