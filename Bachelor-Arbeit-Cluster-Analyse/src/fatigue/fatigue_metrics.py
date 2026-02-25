@@ -51,3 +51,27 @@ def compute_subject_fatigue(df_subject):
         Slope_SF=compute_slope(df_subject["km"], df_subject["SF_norm"])
 
     )
+
+
+def build_fatigue_feature_table(df_dual_axis: pd.DataFrame) -> pd.DataFrame:
+    """
+    Build one row per subject with fatigue features.
+
+    Input columns required:
+    - Subject, km, DF, SF_norm
+
+    Output:
+    - DF_start, DF_end, Delta_DF, Slope_DF
+    - SF_start, SF_end, Delta_SF, Slope_SF
+    """
+    subjects = df_dual_axis["Subject"].unique()
+    rows = []
+
+    for s in subjects:
+        df_s = df_dual_axis[df_dual_axis["Subject"] == s]
+        metrics = compute_subject_fatigue(df_s)
+        row = {"Subject": s}
+        row.update(metrics)
+        rows.append(row)
+
+    return pd.DataFrame(rows)
