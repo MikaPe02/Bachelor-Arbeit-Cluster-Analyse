@@ -10,15 +10,27 @@ from fatigue.clustering_eval import evaluate_clustering_methods, add_best_flag
 
 df_z = pd.read_csv("cluster_features_z.txt", sep="\t")
 
-df_eval = evaluate_clustering_methods(df_z, k_range=range(2, 7))
+df_eval = evaluate_clustering_methods(
+    df_z,
+    k_range=range(2, 7),
+    include_hdbscan=True,
+    hdbscan_min_cluster_sizes=[2, 3, 4],
+    hdbscan_min_samples=[None, 1, 2, 3],
+)
 
-# Markierung hinzufügen
-df_eval_marked = add_best_flag(df_eval)
+df_eval = add_best_flag(df_eval)
 
-# Optional: nur “schön” sortieren (nicht nach Qualität, nur nach Struktur)
-df_eval_marked = df_eval_marked.sort_values(["method", "linkage", "k"], ascending=True)
+# nur “strukturiert” sortieren (nicht nach Qualität)
+df_eval = df_eval.sort_values(
+    ["method", "linkage", "k", "min_cluster_size", "min_samples"],
+    ascending=True
+)
 
-df_eval_marked.to_csv("cluster_method_comparison_full.txt", sep="\t", index=False)
+df_eval.to_csv("cluster_method_comparison_full.txt", sep="\t", index=False)
 
 print("Saved: cluster_method_comparison_full.txt")
-print(df_eval_marked.head(15))
+print("\nBest rows (is_best=True):")
+print(df_eval[df_eval["is_best"] == True][
+    ["method", "linkage", "k", "min_cluster_size", "min_samples",
+     "n_clusters_found", "n_noise", "silhouette", "davies_bouldin", "calinski_harabasz"]
+])
