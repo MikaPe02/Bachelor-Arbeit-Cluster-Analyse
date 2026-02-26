@@ -120,7 +120,8 @@ def evaluate_clustering_methods(
     """
 
     X = df_features_z.drop(columns=["Subject"]).to_numpy(dtype=float)
-
+    n_total = X.shape[0]
+    
     rows: list[dict] = []
 
     # 1) Hierarchical
@@ -140,6 +141,8 @@ def evaluate_clustering_methods(
                         min_samples=np.nan,
                         n_clusters_found=int(len(np.unique(labels))),
                         n_noise=0,
+                        n_points_scored=n_total,
+                        noise_fraction=0.0,
                         silhouette=sil,
                         davies_bouldin=db,
                         calinski_harabasz=ch,
@@ -163,6 +166,8 @@ def evaluate_clustering_methods(
                     min_samples=np.nan,
                     n_clusters_found=int(len(np.unique(labels))),
                     n_noise=0,
+                    n_points_scored=n_total,
+                    noise_fraction=0.0,
                     silhouette=sil,
                     davies_bouldin=db,
                     calinski_harabasz=ch,
@@ -187,6 +192,8 @@ def evaluate_clustering_methods(
                         min_samples=(np.nan if ms is None else int(ms)),
                         n_clusters_found=int(n_clusters),
                         n_noise=int(n_noise),
+                        n_points_scored=int(n_total - n_noise),
+                        noise_fraction=float(n_noise / n_total),
                         silhouette=sil,
                         davies_bouldin=db,
                         calinski_harabasz=ch,
