@@ -1,6 +1,31 @@
+# src/fatigue/clustering_eval.py
+#
+# ZWECK: Vergleich verschiedener Clustering-Methoden auf z-transformierten Features.
+#
+# METHODEN:
+#   - k-Means:        Partitionierendes Verfahren, erfordert k als Input
+#   - Hierarchisch:   Agglomeratives Verfahren (SAHN), verschiedene Linkages
+#   - HDBSCAN:        Dichtebasiertes Verfahren, findet k automatisch
+#
+# VALIDIERUNGSMETRIKEN (alle drei zusammen verwenden – keine ist universell):
+#   - Silhouette Score:       höher = besser (Bereich: −1 bis +1)
+#                             Misst Kohäsion vs. Separation pro Punkt
+#   - Davies-Bouldin Index:   niedriger = besser (≥ 0)
+#                             Misst Streuung innerhalb / Distanz zwischen Clustern
+#   - Calinski-Harabasz:      höher = besser (≥ 0)
+#                             Verhältnis Zwischen-Cluster- zu Binnen-Cluster-Varianz
+#
+#   Quelle: Arbelaitz et al. (2013), Pattern Recognition, 46(1), 243–256.
+#           "An extensive comparative study of cluster validity indices"
+#
+# ÄNDERUNGEN gegenüber alter Version:
+#   - Doppelter hdbscan-Import repariert (try/except jetzt korrekt am Anfang)
+#   - Toter Code entfernt: @dataclass ClusteringResult wurde nirgendwo verwendet
+#   - Kommentare zu Metriken und Methoden ergänzt
+
+# ── Imports ──────────────────────────────────────────────────────────────────
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import List, Optional, Tuple
 
 import numpy as np
@@ -12,65 +37,144 @@ from sklearn.metrics import (
     davies_bouldin_score,
     calinski_harabasz_score,
 )
-import hdbscan
+
+# WARUM try/except HIER (ganz oben):
+# Wenn hdbscan nicht installiert ist, muss der Import-Fehler sofort
+# abgefangen werden. Früher stand 'import hdbscan' ohne try/except
+# VOR dem schützenden try/except-Block – das hat das Programm gecrasht
+# bevor der Schutz greifen konnte.
+# Lösung: NUR ein Import-Versuch, direkt mit try/except gesichert.
 try:
     import hdbscan
+    HAS_HDBSCAN = True
 except ImportError:
     hdbscan = None
+    HAS_HDBSCAN = False
+# ─────────────────────────────────────────────────────────────────────────────
 
 
-@dataclass
-class ClusteringResult:
-    method: str
-    linkage: Optional[str]
-    k: int
-    silhouette: float
-    davies_bouldin: float
-    calinski_harabasz: float
-    inertia: Optional[float]
-
-
-def compute_validity_scores_safe(X: np.ndarray, labels: np.ndarray) -> tuple[float, float, float]:
+def compute_validity_scores_safe(
+    X: np.ndarray,
+    labels: np.ndarray
+) -> tuple[float, float, float]:
     """
-    Compute validity scores safely.
-    Returns NaN if scores are not defined (e.g., <2 clusters after filtering noise).
+    Berechnet Silhouette, Davies-Bouldin und Calinski-Harabasz sicher.
 
-    For HDBSCAN: labels can contain -1 (noise). Noise points are excluded for scoring.
+    WARUM 'safe':
+    Manche Konfigurationen erzeugen ungültige Cluster (z.B. HDBSCAN
+    klassifiziert alle Punkte als Noise → nur 1 Cluster übrig).
+    In diesen Fällen sind die Metriken nicht definiert → NaN zurückgeben
+    statt einen Fehler zu werfen.
+
+    HDBSCAN-Noise:
+    Punkte mit Label -1 sind Noise und werden vor der Berechnung
+    entfernt. Nur echte Cluster-Punkte gehen in die Metriken ein.
+
+    Parameters
+    ----------
+    X      : np.ndarray – Feature-Matrix (n_samples × n_features)
+    labels : np.ndarray – Cluster-Labels (−1 = Noise bei HDBSCAN)
+
+    Returns
+    -------
+    tuple: (silhouette, davies_bouldin, calinski_harabasz)
+           NaN wenn Berechnung nicht möglich
     """
     labels = np.asarray(labels)
 
-    # Noise entfernen (-1)
+    # Noise-Punkte (Label −1) entfernen
     mask = labels != -1
     X2 = X[mask]
     y2 = labels[mask]
 
-    # mind. 2 Cluster nötig
+    # Mindestens 2 Cluster nötig für alle Metriken
     unique = np.unique(y2)
     if len(unique) < 2:
         return np.nan, np.nan, np.nan
 
     sil = silhouette_score(X2, y2)
-    db = davies_bouldin_score(X2, y2)
-    ch = calinski_harabasz_score(X2, y2)
-    return sil, db, ch
+    db  = davies_bouldin_score(X2, y2)
+    ch  = calinski_harabasz_score(X2, y2)
 
-def fit_hierarchical(X: np.ndarray, k: int, linkage: str) -> np.ndarray:
+    return float(sil), float(db), float(ch)
+
+
+def fit_kmeans(
+    X: np.ndarray,
+    k: int,
+    random_state: int = 42
+) -> tuple[np.ndarray, float]:
     """
-    Fit agglomerative clustering (SAHN) for a given linkage and return labels.
+    Führt k-Means Clustering durch.
+
+    WARUM random_state=42:
+    k-Means ist nicht deterministisch (zufällige Initialisierung).
+    Ein fixer random_state macht Ergebnisse reproduzierbar –
+    wichtig für wissenschaftliche Arbeiten.
+
+    WARUM n_init=10:
+    k-Means wird 10× mit verschiedenen Startwerten ausgeführt.
+    Das beste Ergebnis (niedrigste Inertia) wird behalten.
+    Reduziert das Risiko lokaler Minima.
+
+    Parameters
+    ----------
+    X            : np.ndarray
+    k            : int – Anzahl Cluster
+    random_state : int
+
+    Returns
+    -------
+    tuple: (labels, inertia)
     """
-    try:
-        model = AgglomerativeClustering(n_clusters=k, linkage=linkage, metric="euclidean")
-    except TypeError:
-        model = AgglomerativeClustering(n_clusters=k, linkage=linkage, affinity="euclidean")
-
-    labels = model.fit_predict(X)
-    return labels
-
-
-def fit_kmeans(X: np.ndarray, k: int, random_state: int = 42) -> Tuple[np.ndarray, float]:
     model = KMeans(n_clusters=k, random_state=random_state, n_init=10)
     labels = model.fit_predict(X)
     return labels, float(model.inertia_)
+
+
+def fit_hierarchical(
+    X: np.ndarray,
+    k: int,
+    linkage: str
+) -> np.ndarray:
+    """
+    Führt agglomeratives (hierarchisches) Clustering durch.
+
+    LINKAGE-METHODEN und ihre Eigenschaften:
+    - ward:     Minimiert Varianz innerhalb der Cluster.
+                Nur für euklidische Distanz. Oft beste Wahl.
+    - complete: Maximale Distanz zwischen Clustern (konservativ).
+    - average:  Mittlere Distanz – Kompromiss zwischen ward und single.
+    - single:   Minimale Distanz. Neigt zu "Chaining" (lange Ketten).
+                Nur als Vergleich, selten bestes Ergebnis.
+
+    Parameters
+    ----------
+    X       : np.ndarray
+    k       : int – Anzahl Cluster
+    linkage : str – "ward", "complete", "average" oder "single"
+
+    Returns
+    -------
+    np.ndarray – Cluster-Labels
+    """
+    try:
+        # aktuelle sklearn-API
+        model = AgglomerativeClustering(
+            n_clusters=k,
+            linkage=linkage,
+            metric="euclidean"
+        )
+    except TypeError:
+        # Fallback für ältere sklearn-Versionen (<1.2) die 'affinity' statt 'metric' nutzen
+        model = AgglomerativeClustering(
+            n_clusters=k,
+            linkage=linkage,
+            affinity="euclidean"
+        )
+
+    return model.fit_predict(X)
+
 
 def fit_hdbscan(
     X: np.ndarray,
@@ -78,13 +182,40 @@ def fit_hdbscan(
     min_samples: int | None = None,
 ) -> tuple[np.ndarray, int, int]:
     """
-    Fit HDBSCAN and return:
-    - labels
-    - n_clusters_found (excluding noise label -1)
-    - n_noise
+    Führt HDBSCAN Clustering durch.
+
+    WARUM HDBSCAN:
+    Im Gegensatz zu k-Means bestimmt HDBSCAN die Clusteranzahl automatisch
+    und kann Noise-Punkte erkennen (Label −1). Gut geeignet wenn die
+    erwartete Clusteranzahl unbekannt ist.
+
+    PARAMETER:
+    - min_cluster_size: Mindestgröße eines Clusters.
+                        Kleinere Gruppen werden als Noise markiert.
+                        Bei wenigen Probanden (n<30): kleine Werte wählen (2–5).
+    - min_samples:      Kontrolle der Konservativität.
+                        None = automatisch (= min_cluster_size).
+                        Höhere Werte → mehr Noise-Punkte.
+
+    EINSCHRÄNKUNG:
+    Benötigt separate Installation: pip install hdbscan
+    Wird übersprungen wenn nicht installiert (HAS_HDBSCAN = False).
+
+    Parameters
+    ----------
+    X                : np.ndarray
+    min_cluster_size : int
+    min_samples      : int or None
+
+    Returns
+    -------
+    tuple: (labels, n_clusters_found, n_noise)
     """
-    if hdbscan is None:
-        raise ImportError("Package 'hdbscan' is not installed. Install with: pip install hdbscan")
+    if not HAS_HDBSCAN:
+        raise ImportError(
+            "Package 'hdbscan' ist nicht installiert. "
+            "Installation: pip install hdbscan  oder  conda install -c conda-forge hdbscan"
+        )
 
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=min_cluster_size,
@@ -94,8 +225,8 @@ def fit_hdbscan(
 
     labels = clusterer.fit_predict(X)
 
-    n_noise = int(np.sum(labels == -1))
-    unique = set(labels.tolist())
+    n_noise    = int(np.sum(labels == -1))
+    unique     = set(labels.tolist())
     n_clusters = int(len(unique) - (1 if -1 in unique else 0))
 
     return labels, n_clusters, n_noise
@@ -113,159 +244,173 @@ def evaluate_clustering_methods(
     random_state: int = 42,
 ) -> pd.DataFrame:
     """
-    Evaluate hierarchical (multiple linkages), kmeans (k=2..6), and HDBSCAN (parameter grid)
-    on z-transformed features.
+    Vergleicht alle Clustering-Methoden auf z-transformierten Features.
 
-    Returns one combined DataFrame with consistent columns.
+    WARUM Z-TRANSFORMATION ALS INPUT:
+    Alle Features müssen auf vergleichbarer Skala sein bevor geclustert
+    wird. Sonst dominieren Features mit großen Wertebereichen die
+    Distanzberechnung. Die Z-Transformation (Mittelwert=0, Std=1)
+    wird in Skript 12 vorberechnet und hier als Input erwartet.
+
+    Parameters
+    ----------
+    df_features_z : pd.DataFrame
+        Z-transformierte Feature-Tabelle.
+        Muss Spalte 'Subject' + numerische Feature-Spalten enthalten.
+    k_range : range
+        Zu testende Clusteranzahlen für k-Means und hierarchisch.
+    include_kmeans, include_hierarchical, include_hdbscan : bool
+        Schalter um einzelne Methoden ein-/auszuschalten.
+    linkages : list[str]
+        Linkage-Methoden für hierarchisches Clustering.
+    hdbscan_min_cluster_sizes : list[int]
+        Parameter-Grid für HDBSCAN.
+    hdbscan_min_samples : list[int | None]
+        Parameter-Grid für HDBSCAN.
+    random_state : int
+        Reproduzierbarkeit für k-Means.
+
+    Returns
+    -------
+    pd.DataFrame – eine Zeile pro Methoden-Konfiguration mit Metriken
     """
-
-    X = df_features_z.drop(columns=["Subject"]).to_numpy(dtype=float)
+    X       = df_features_z.drop(columns=["Subject"]).to_numpy(dtype=float)
     n_total = X.shape[0]
-    
     rows: list[dict] = []
 
-    # 1) Hierarchical
+    # ── 1) Hierarchisches Clustering ─────────────────────────────────────────
     if include_hierarchical:
         for linkage in linkages:
             for k in k_range:
-                labels = fit_hierarchical(X, k=k, linkage=linkage)
+                labels          = fit_hierarchical(X, k=k, linkage=linkage)
+                sil, db, ch     = compute_validity_scores_safe(X, labels)
 
-                sil, db, ch = compute_validity_scores_safe(X, labels)
+                rows.append(dict(
+                    method          = "hierarchical",
+                    linkage         = linkage,
+                    k               = k,
+                    min_cluster_size= np.nan,
+                    min_samples     = np.nan,
+                    n_clusters_found= int(len(np.unique(labels))),
+                    n_noise         = 0,
+                    n_points_scored = n_total,
+                    noise_fraction  = 0.0,
+                    silhouette      = sil,
+                    davies_bouldin  = db,
+                    calinski_harabasz = ch,
+                    inertia         = np.nan,
+                ))
 
-                rows.append(
-                    dict(
-                        method="hierarchical",
-                        linkage=linkage,
-                        k=k,
-                        min_cluster_size=np.nan,
-                        min_samples=np.nan,
-                        n_clusters_found=int(len(np.unique(labels))),
-                        n_noise=0,
-                        n_points_scored=n_total,
-                        noise_fraction=0.0,
-                        silhouette=sil,
-                        davies_bouldin=db,
-                        calinski_harabasz=ch,
-                        inertia=np.nan,
-                    )
-                )
-
-    # 2) KMeans
+    # ── 2) k-Means ───────────────────────────────────────────────────────────
     if include_kmeans:
         for k in k_range:
             labels, inertia = fit_kmeans(X, k=k, random_state=random_state)
+            sil, db, ch     = compute_validity_scores_safe(X, labels)
 
-            sil, db, ch = compute_validity_scores_safe(X, labels)
+            rows.append(dict(
+                method          = "kmeans",
+                linkage         = np.nan,
+                k               = k,
+                min_cluster_size= np.nan,
+                min_samples     = np.nan,
+                n_clusters_found= int(len(np.unique(labels))),
+                n_noise         = 0,
+                n_points_scored = n_total,
+                noise_fraction  = 0.0,
+                silhouette      = sil,
+                davies_bouldin  = db,
+                calinski_harabasz = ch,
+                inertia         = float(inertia),
+            ))
 
-            rows.append(
-                dict(
-                    method="kmeans",
-                    linkage=np.nan,
-                    k=k,
-                    min_cluster_size=np.nan,
-                    min_samples=np.nan,
-                    n_clusters_found=int(len(np.unique(labels))),
-                    n_noise=0,
-                    n_points_scored=n_total,
-                    noise_fraction=0.0,
-                    silhouette=sil,
-                    davies_bouldin=db,
-                    calinski_harabasz=ch,
-                    inertia=float(inertia),
-                )
-            )
-
-    # 3) HDBSCAN (kein k, sondern Parameter)
+    # ── 3) HDBSCAN ───────────────────────────────────────────────────────────
     if include_hdbscan:
-        for mcs in hdbscan_min_cluster_sizes:
-            for ms in hdbscan_min_samples:
-                labels, n_clusters, n_noise = fit_hdbscan(X, min_cluster_size=mcs, min_samples=ms)
-
-                sil, db, ch = compute_validity_scores_safe(X, labels)
-
-                rows.append(
-                    dict(
-                        method="hdbscan",
-                        linkage=np.nan,
-                        k=np.nan,
-                        min_cluster_size=int(mcs),
-                        min_samples=(np.nan if ms is None else int(ms)),
-                        n_clusters_found=int(n_clusters),
-                        n_noise=int(n_noise),
-                        n_points_scored=int(n_total - n_noise),
-                        noise_fraction=float(n_noise / n_total),
-                        silhouette=sil,
-                        davies_bouldin=db,
-                        calinski_harabasz=ch,
-                        inertia=np.nan,
+        if not HAS_HDBSCAN:
+            print(
+                "HDBSCAN übersprungen – nicht installiert. "
+                "Installation: pip install hdbscan"
+            )
+        else:
+            for mcs in hdbscan_min_cluster_sizes:
+                for ms in hdbscan_min_samples:
+                    labels, n_clusters, n_noise = fit_hdbscan(
+                        X,
+                        min_cluster_size=mcs,
+                        min_samples=ms
                     )
-                )
+                    sil, db, ch = compute_validity_scores_safe(X, labels)
+
+                    rows.append(dict(
+                        method          = "hdbscan",
+                        linkage         = np.nan,
+                        k               = np.nan,
+                        min_cluster_size= int(mcs),
+                        min_samples     = (np.nan if ms is None else int(ms)),
+                        n_clusters_found= int(n_clusters),
+                        n_noise         = int(n_noise),
+                        n_points_scored = int(n_total - n_noise),
+                        noise_fraction  = float(n_noise / n_total),
+                        silhouette      = sil,
+                        davies_bouldin  = db,
+                        calinski_harabasz = ch,
+                        inertia         = np.nan,
+                    ))
 
     return pd.DataFrame(rows)
 
 
-def suggest_best_k(df_eval: pd.DataFrame) -> pd.DataFrame:
-    """
-    Suggest best k per (method, linkage) using rank aggregation:
-    - maximize silhouette
-    - maximize calinski_harabasz
-    - minimize davies_bouldin
-    """
-    df = df_eval.copy()
-
-    df["rank_sil"] = df.groupby(["method", "linkage"])["silhouette"].rank(ascending=False)
-    df["rank_ch"] = df.groupby(["method", "linkage"])["calinski_harabasz"].rank(ascending=False)
-    df["rank_db"] = df.groupby(["method", "linkage"])["davies_bouldin"].rank(ascending=True)
-
-    df["rank_mean"] = df[["rank_sil", "rank_ch", "rank_db"]].mean(axis=1)
-
-    best_rows = (
-        df.sort_values(["method", "linkage", "rank_mean"])
-          .groupby(["method", "linkage"], as_index=False)
-          .first()
-    )
-
-    best_rows["k_minus_1"] = best_rows["k"] - 1
-    best_rows["k_plus_1"] = best_rows["k"] + 1
-
-    return best_rows[
-        ["method", "linkage", "k", "k_minus_1", "k_plus_1",
-         "silhouette", "davies_bouldin", "calinski_harabasz", "rank_mean"]
-    ]
-
 def add_best_flag(df_eval: pd.DataFrame) -> pd.DataFrame:
     """
-    Add is_best=True for the best setting per:
-    - hierarchical: per linkage
-    - kmeans: overall
-    - hdbscan: overall
+    Markiert die beste Konfiguration pro Methode mit is_best=True.
 
-    Uses rank aggregation of silhouette (max), CH (max), DB (min).
-    Ignores rows with NaN silhouette (e.g. HDBSCAN found <2 clusters).
+    WARUM RANK-AGGREGATION:
+    Die drei Metriken zeigen nicht immer dasselbe beste k.
+    Rank-Aggregation kombiniert alle drei zu einem gemeinsamen Rang –
+    das ist robuster als nur eine Metrik zu verwenden.
+
+    Rangregeln:
+    - Silhouette:         Rang 1 = höchster Wert  (maximize)
+    - Calinski-Harabasz:  Rang 1 = höchster Wert  (maximize)
+    - Davies-Bouldin:     Rang 1 = niedrigster Wert (minimize)
+
+    Gruppierung:
+    - Hierarchisch: beste k pro Linkage-Methode
+    - k-Means:      beste k insgesamt
+    - HDBSCAN:      beste Parameter-Kombination insgesamt
+
+    Parameters
+    ----------
+    df_eval : pd.DataFrame – Ausgabe von evaluate_clustering_methods()
+
+    Returns
+    -------
+    pd.DataFrame – mit zusätzlicher Spalte 'is_best'
     """
     df = df_eval.copy()
 
-    # Gruppierung: hierarchical nach linkage, sonst nur nach method
+    # Gruppierung: hierarchisch nach linkage, sonst nur nach method
     df["group_linkage"] = df["linkage"]
     df.loc[df["method"] != "hierarchical", "group_linkage"] = "none"
-
     group_cols = ["method", "group_linkage"]
 
-    # NaN rows (nicht bewertbar) sollen nicht "best" werden
+    # Zeilen ohne gültige Metriken (z.B. HDBSCAN fand <2 Cluster) nicht als best markieren
     valid = df["silhouette"].notna()
 
     df["rank_sil"] = np.nan
-    df["rank_ch"] = np.nan
-    df["rank_db"] = np.nan
-    df["rank_mean"] = np.nan
+    df["rank_ch"]  = np.nan
+    df["rank_db"]  = np.nan
+    df["rank_mean"]= np.nan
 
     df.loc[valid, "rank_sil"] = df[valid].groupby(group_cols)["silhouette"].rank(ascending=False)
-    df.loc[valid, "rank_ch"] = df[valid].groupby(group_cols)["calinski_harabasz"].rank(ascending=False)
-    df.loc[valid, "rank_db"] = df[valid].groupby(group_cols)["davies_bouldin"].rank(ascending=True)
+    df.loc[valid, "rank_ch"]  = df[valid].groupby(group_cols)["calinski_harabasz"].rank(ascending=False)
+    df.loc[valid, "rank_db"]  = df[valid].groupby(group_cols)["davies_bouldin"].rank(ascending=True)
 
     df.loc[valid, "rank_mean"] = df.loc[valid, ["rank_sil", "rank_ch", "rank_db"]].mean(axis=1)
 
     df["is_best"] = False
-    df.loc[valid, "is_best"] = df.loc[valid, "rank_mean"] == df.loc[valid].groupby(group_cols)["rank_mean"].transform("min")
+    df.loc[valid, "is_best"] = (
+        df.loc[valid, "rank_mean"]
+        == df.loc[valid].groupby(group_cols)["rank_mean"].transform("min")
+    )
 
     return df.drop(columns=["group_linkage"])
