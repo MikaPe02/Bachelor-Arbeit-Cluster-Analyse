@@ -205,4 +205,6 @@ def build_fatigue_feature_table(df_dual_axis: pd.DataFrame) -> pd.DataFrame:
     for s in subjects:
         df_s = df_dual_axis[df_dual_axis["Subject"] == s]
         metrics = compute_subject_fatigue(df_s)
-        rows.append({"Subject": s, **
+        rows.append({"Subject": s, **metrics})
+
+    return pd.DataFrame(rows)
