@@ -414,3 +414,95 @@ def add_best_flag(df_eval: pd.DataFrame) -> pd.DataFrame:
     )
 
     return df.drop(columns=["group_linkage"])
+
+
+def run_final_clustering(
+    df_features_z: pd.DataFrame,
+    selection: dict,
+    random_state: int = 42,
+) -> pd.Series:
+    """Fuehrt das finale Clustering mit der gewaehlten Konfiguration aus.
+
+    Parameters
+    ----------
+    df_features_z : pd.DataFrame
+        Z-transformierte Feature-Tabelle mit Spalte 'Subject'.
+    selection : dict
+        Ausgabe von select_clustering(): {"method", "linkage", "k"}.
+    random_state : int
+        Seed fuer k-Means (wird fuer hierarchisches Clustering ignoriert).
+
+    Returns
+    -------
+    pd.Series
+        Index = Subject, Values = "Cluster 1" / "Cluster 2" / ...,
+        name = "cluster_label".
+    """
+    method  = selection["method"]
+    linkage = selection.get("linkage")
+    k       = selection["k"]
+
+    X        = df_features_z.drop(columns=["Subject"]).to_numpy(dtype=float)
+    subjects = df_features_z["Subject"].values
+
+    if method == "kmeans":
+        raw_labels = fit_kmeans(X, k=k, random_state=random_state)[0]
+    else:
+        raw_labels = fit_hierarchical(X, k=k, linkage=linkage)
+
+    label_series = pd.Series(
+        [f"Cluster {l + 1}" for l in raw_labels],
+        index=subjects,
+        name="cluster_label",
+    )
+    label_series.index.name = "Subject"
+    return label_series
+
+
+def run_clustering_comparison(
+    df_features_z: pd.DataFrame,
+    cfg,
+) -> pd.DataFrame:
+    """Vergleicht alle Clustering-Methoden und gibt bewertete Ergebnisse zurueck.
+
+    Parameters
+    ----------
+    df_features_z : pd.DataFrame
+        Z-transformierte Feature-Tabelle mit Spalte 'Subject'.
+    cfg : config-Modul
+        Benoetigt: K_RANGE, RUN_KMEANS, RUN_HIERARCHICAL, RUN_HDBSCAN,
+        HIERARCHICAL_LINKAGES, HDBSCAN_MIN_CLUSTER_SIZES,
+        HDBSCAN_MIN_SAMPLES, RANDOM_STATE.
+
+    Returns
+    -------
+    pd.DataFrame – Ergebnisse aller Konfigurationen mit is_best-Flag.
+    """
+    print("\n=== Schritt 4: Clustering ===")
+    print(f"  k_range:     {list(cfg.K_RANGE)}")
+    print(f"  k-Means:     {cfg.RUN_KMEANS}")
+    print(f"  Hierarchisch:{cfg.RUN_HIERARCHICAL}  Linkages: {cfg.HIERARCHICAL_LINKAGES}")
+    print(f"  HDBSCAN:     {cfg.RUN_HDBSCAN}")
+
+    df_results = evaluate_clustering_methods(
+        df_features_z,
+        k_range                   = cfg.K_RANGE,
+        include_kmeans            = cfg.RUN_KMEANS,
+        include_hierarchical      = cfg.RUN_HIERARCHICAL,
+        include_hdbscan           = cfg.RUN_HDBSCAN,
+        linkages                  = cfg.HIERARCHICAL_LINKAGES,
+        hdbscan_min_cluster_sizes = cfg.HDBSCAN_MIN_CLUSTER_SIZES,
+        hdbscan_min_samples       = cfg.HDBSCAN_MIN_SAMPLES,
+        random_state              = cfg.RANDOM_STATE,
+    )
+
+    df_results = add_best_flag(df_results)
+
+    best = df_results[df_results["is_best"]].copy()
+    print(f"\n  Ergebnisse: {len(df_results)} Konfigurationen getestet")
+    print("  Beste Konfiguration pro Gruppe:")
+    display_cols = ["method", "linkage", "k", "silhouette", "davies_bouldin",
+                    "calinski_harabasz", "is_best"]
+    print(best[display_cols].to_string(index=False))
+
+    return df_results

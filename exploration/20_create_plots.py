@@ -31,7 +31,7 @@ sys.path.append(str(PROJECT_ROOT / "Bachelor-Arbeit-Cluster-Analyse" / "src"))
 
 import config
 from fatigue.fatigue_metrics import build_fatigue_feature_table
-from extension.viz_plots import dual_axis_snapshot, dual_axis_arrows, cluster_scatter
+from extension.viz_plots import dual_axis_snapshot, dual_axis_arrows, cluster_scatter, metrics_table
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -141,6 +141,10 @@ def main() -> None:
 
     print("  Plot 3: cluster_scatter ...")
     cluster_scatter(df, cluster_col="cluster_label", out_dir=config.OUTPUT_PLOTS_DIR)
+
+    print("  Plot 4: metrics_table ...")
+    df_results = pd.read_csv(config.CLUSTER_RESULTS_CSV)
+    metrics_table(df_results, out_dir=config.OUTPUT_PLOTS_DIR)
 
     print("\n" + "=" * 55)
     print(f"Fertig. Plots in: {config.OUTPUT_PLOTS_DIR}")

@@ -1,8 +1,0 @@
-Features used:
-- Delta_DF
-- Slope_DF
-- Delta_SF
-- Slope_SF
-
-PC1: 0.5037
-PC2: 0.4904
