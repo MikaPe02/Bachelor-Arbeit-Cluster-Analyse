@@ -28,30 +28,33 @@ All scripts are run from the project root (`C:\Users\Mika\Uni\BA`):
 # Generate synthetic test data (30 subjects, 5 groups)
 python tests/generate_test_data.py
 
-# Run full analysis pipeline (features → clustering → elbow plot → sanity check)
+# Run full analysis pipeline (interactive: features → clustering → method selection → plots)
 python main.py
 
-# Generate all Dual-Axis plots (requires main.py to have run first)
+# (Standalone) Regenerate plots without re-running the full pipeline
 python exploration/20_create_plots.py
 
-# (Legacy) Extract DF and SF_norm from real MAT files
+# (Real data) Extract DF and SF_norm from MAT files
 python extract_to_csv.py
 ```
-
-Scripts in `exploration/` prefixed with `xx_` are deprecated/experimental. Scripts `00_`–`20_` are the active analysis sequence.
 
 ## Architecture
 
 ### Main Pipeline: `main.py`
 
-Single entry point for the full analysis. Six steps:
-1. Load `dual_axis_dataset.csv`
-2. Compute fatigue features via `build_fatigue_feature_table()` — aborts with `sys.exit(1)` if `< config.MIN_SUBJECTS` subjects
-3. Z-transform with `StandardScaler`
-4. Clustering via `evaluate_clustering_methods()` + `add_best_flag()`
-4b. Elbow plot (normalized WCSS % vs. k, k=1 baseline computed on the fly)
-5. Save `fatigue_features.csv` + `cluster_results.csv` to `Outputs/Data/`
-6. Sanity check: DF and SF_norm range per subject
+Single entry point for the full analysis. All implementation logic lives in src modules — `main.py` contains only function calls. Seven steps:
+
+1. `step1_load_data()` — load `dual_axis_dataset.csv`, validate required columns
+2. `step2_compute_fatigue_features()` — `build_fatigue_feature_table()`; aborts with `sys.exit(1)` if `< config.MIN_SUBJECTS` subjects
+3. `z_transform()` — StandardScaler via `fatigue.preprocessing`
+4. `run_clustering_comparison(df_features_z, config)` — all methods vs. all k, rank aggregation
+4b. `elbow_plot(df_results, df_features_z, config)` — normalized WCSS % vs. k
+4c. `show_metrics_summary(df_results)` — best config per method/linkage in terminal
+4d. `select_clustering(df_results)` — interactive menu: accept recommendation or choose manually
+5. `step5_run_final_clustering()` — runs chosen method/k via `run_final_clustering()`
+5b. `create_all_plots(df, labels, df_results, config)` — all 4 plots saved to `Outputs/Plots/`
+6. `step6_save_results()` — saves `fatigue_features.csv`, `cluster_results.csv`, `cluster_labels.csv`
+7. `sanity_check(df)` — DF and SF_norm range per subject
 
 ### Source Library: `Bachelor-Arbeit-Cluster-Analyse/src/`
 
@@ -64,13 +67,13 @@ sys.path.append(str(PROJECT_ROOT / "Bachelor-Arbeit-Cluster-Analyse" / "src"))
 **`fatigue/` package** — core pipeline:
 - `io.py` — MAT file loading. Filename is the only source for subject ID and km marker.
 - `features.py` — computes DF, SF, SF_norm. `StepFrequency` in MAT files is INT32_MAX (invalid); always recompute from ContactTimes/FlightTimes. Contains `estimate_leg_length(body_height_m)` using De Leva factor 0.53.
-- `fatigue_metrics.py` — builds per-subject features: `Delta` (last − first) and `Slope` (linear regression) for DF and SF_norm. Entry point: `build_fatigue_feature_table(df_dual_axis)`. **Note:** file was previously truncated at line 208 — the `rows.append({"Subject": s, **metrics})` + `return pd.DataFrame(rows)` lines were added manually.
-- `clustering_eval.py` — k-Means, hierarchical (ward/complete/average/single), HDBSCAN. Entry points: `evaluate_clustering_methods(df_features_z, ...)`, `add_best_flag(df_eval)`.
+- `fatigue_metrics.py` — builds per-subject features: `Delta` (last − first) and `Slope` (linear regression) for DF and SF_norm. Entry point: `build_fatigue_feature_table(df_dual_axis)`.
+- `preprocessing.py` — `z_transform(df_features)` (StandardScaler), `sanity_check(df)` (range check per subject).
+- `clustering_eval.py` — k-Means, hierarchical (ward/complete/average/single), HDBSCAN. Entry points: `run_clustering_comparison(df_features_z, cfg)`, `run_final_clustering(df_features_z, selection, random_state)`, `add_best_flag(df_eval)`. Best-k selection via rank aggregation over Silhouette, Davies-Bouldin, Calinski-Harabasz.
+- `clustering_ui.py` — interactive terminal menus. `show_metrics_summary(df_results)`: table of best configs, global best marked with →. `select_clustering(df_results)`: method + k selection with input validation. Global best determined by lowest `rank_mean`; fallback to highest Silhouette.
 
 **`extension/` package** — visualization:
-- `pca_utils.py` — wraps sklearn PCA.
-- `viz.py` — generic scatter/arrow plots for PCA and Dual-Axis space.
-- `viz_plots.py` — publication-ready Dual-Axis plots. Three functions: `dual_axis_snapshot()`, `dual_axis_arrows()`, `cluster_scatter()`. All share `XLIM=(0.45, 0.78)` and `YLIM=(0.65, 1.08)`.
+- `viz_plots.py` — all publication-ready plots. Shared constants: `XLIM=(0.45, 0.78)`, `YLIM=(0.65, 1.08)`, `_PALETTE` (Paul Tol), `DPI=300`. Functions: `dual_axis_snapshot()`, `dual_axis_arrows()`, `cluster_scatter()`, `metrics_table()` (booktabs-style, black/white/grey), `elbow_plot(df_results, df_features_z, cfg)`, `create_all_plots(df, labels, df_results, cfg)`.
 
 ### Configuration: `config.py`
 
@@ -80,7 +83,7 @@ Key settings:
 - `MIN_SUBJECTS = 3` — minimum subjects required before clustering
 - `K_RANGE`, `RUN_KMEANS`, `RUN_HIERARCHICAL`, `RUN_HDBSCAN`, `HIERARCHICAL_LINKAGES`
 - `RANDOM_STATE = 42`
-- Output paths: `FATIGUE_FEATURES_CSV`, `CLUSTER_RESULTS_CSV`, `OUTPUT_PLOTS_DIR`
+- Output paths: `FATIGUE_FEATURES_CSV`, `CLUSTER_RESULTS_CSV`, `CLUSTER_LABELS_CSV`, `OUTPUT_PLOTS_DIR`
 
 ### Data Flow
 
@@ -93,20 +96,17 @@ extract_to_csv.py                    (real MAT files → uses fatigue.io + fatig
 data/processed/dual_axis_dataset.csv   [Subject, km, DF, SF_norm, ...]
         |
         v
-main.py                              (uses fatigue.fatigue_metrics + fatigue.clustering_eval)
+main.py
         |
         v
 Outputs/Data/fatigue_features.csv    [1 row per subject, Delta/Slope features]
 Outputs/Data/cluster_results.csv     [1 row per method/k, Silhouette/DB/CH scores, is_best]
+Outputs/Data/cluster_labels.csv      [1 row per subject, final cluster assignment]
 Outputs/Plots/elbow_plot.png
-        |
-        v
-exploration/20_create_plots.py       (uses extension.viz_plots)
-        |
-        v
 Outputs/Plots/dual_axis_snapshot.png
 Outputs/Plots/dual_axis_arrows.png
 Outputs/Plots/cluster_scatter.png
+Outputs/Plots/metrics_table.png
 ```
 
 ### MAT File Structure

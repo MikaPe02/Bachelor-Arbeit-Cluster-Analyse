@@ -28,11 +28,8 @@ pip install hdbscan
 # 1. Synthetische Testdaten generieren (30 Probanden, 5 Gruppen)
 python tests/generate_test_data.py
 
-# 2. Analyse-Pipeline ausführen
+# 2. Analyse-Pipeline ausführen (inkl. interaktiver Methodenwahl + Plots)
 python main.py
-
-# 3. Plots erzeugen
-python exploration/20_create_plots.py
 ```
 
 ---
@@ -43,11 +40,8 @@ python exploration/20_create_plots.py
 # 1. DF und SF_norm aus MAT-Dateien extrahieren
 python extract_to_csv.py
 
-# 2. Analyse-Pipeline ausführen
+# 2. Analyse-Pipeline ausführen (inkl. interaktiver Methodenwahl + Plots)
 python main.py
-
-# 3. Plots erzeugen
-python exploration/20_create_plots.py
 ```
 
 Pfad zu den MAT-Dateien in `config.py` unter `DATA_RAW_FOLDER` anpassen.
@@ -60,32 +54,34 @@ Pfad zu den MAT-Dateien in `config.py` unter `DATA_RAW_FOLDER` anpassen.
 |---|---|
 | `Outputs/Data/fatigue_features.csv` | Delta und Slope (DF, SF_norm) pro Proband |
 | `Outputs/Data/cluster_results.csv` | Silhouette, Davies-Bouldin, CH-Score je Methode/k |
+| `Outputs/Data/cluster_labels.csv` | Finale Cluster-Zuweisung pro Proband |
 | `Outputs/Plots/elbow_plot.png` | Elbow-Methode: Innerhalb-Cluster-Streuung vs. k |
 | `Outputs/Plots/dual_axis_snapshot.png` | Ausgangslaufstile bei km 1.0 |
 | `Outputs/Plots/dual_axis_arrows.png` | Ermüdungsverlauf km 1.0 → 9.5 |
 | `Outputs/Plots/cluster_scatter.png` | Clustering-Ergebnis mit Zentroiden |
+| `Outputs/Plots/metrics_table.png` | Validierungsmetriken aller Methoden als Tabelle |
 
 ---
 
 ## Projektstruktur
 
 ```
-main.py                          # Haupt-Pipeline
+main.py                          # Haupt-Pipeline (interaktiv)
 config.py                        # Zentrale Konfiguration
 extract_to_csv.py                # MAT → dual_axis_dataset.csv
 tests/generate_test_data.py      # Synthetische Testdaten
-exploration/20_create_plots.py   # Dual-Axis Plots
+exploration/20_create_plots.py   # Plots standalone neu erzeugen
 
 Bachelor-Arbeit-Cluster-Analyse/src/
   fatigue/
     io.py                        # MAT-Datei laden
     features.py                  # DF, SF, SF_norm berechnen
     fatigue_metrics.py           # Delta + Slope pro Proband
-    clustering_eval.py           # k-Means, hierarchisch, HDBSCAN
+    preprocessing.py             # Z-Transformation, Sanity-Check
+    clustering_eval.py           # k-Means, hierarchisch, HDBSCAN; Methoden-Vergleich
+    clustering_ui.py             # Interaktive Terminal-Menüs zur Methodenwahl
   extension/
-    viz_plots.py                 # Dual-Axis Visualisierungen
-    pca_utils.py                 # PCA-Wrapper
-    viz.py                       # Generische Scatter-Plots
+    viz_plots.py                 # Dual-Axis Visualisierungen + Elbow-Plot + Metriken-Tabelle
 
 data/
   subjects.csv                   # Körpergröße / Beinlänge pro Proband
