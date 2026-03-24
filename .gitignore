@@ -1,29 +1,38 @@
-# Python
+# ── Python ───────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+.Python
 
-# VS Code
-.vscode/
-
-# Environments
+# ── Umgebungen ────────────────────────────────────────────────────────────────
 .venv/
 .env/
 conda-meta/
 *.conda
+*.egg-info/
 
-# Raw data (niemals pushen)
+# ── VS Code ───────────────────────────────────────────────────────────────────
+.vscode/
+
+# ── Rohdaten (niemals pushen – Datenschutz + Dateigröße) ─────────────────────
+*.mat
+*.c3d
 Beispiel Daten/
-**/*.mat
-**/*.c3d
 
-# Outputs
-Skribte/fatigue_dataset.csv
-Skribte/cluster_scores.csv
-Skribte/labels_*.csv
-Skribte/cluster_profiles_*.csv
+# ── Generierte Outputs (reproduzierbar via main.py) ───────────────────────────
+Outputs/Data/
+Outputs/Plots/
+data/processed/
 
-# OS
+# ── Ausnahme: subjects.csv gehört ins Repository (manuelle Eingaben) ──────────
+!data/subjects.csv
+
+# ── Alte Explorationsskripte – Zwischenoutputs ────────────────────────────────
+exploration/*.csv
+exploration/*.txt
+exploration/*.png
+
+# ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
-
