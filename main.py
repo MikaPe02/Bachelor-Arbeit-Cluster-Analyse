@@ -152,7 +152,7 @@ def main() -> None:
     labels = step5_run_final_clustering(df_features_z, selection)
 
     # Schritt 5b: Plots erstellen
-    create_all_plots(df, labels, df_results, config)
+    create_all_plots(df, labels, df_results, config, selection, df_features_z)
 
     # Schritt 6: Speichern
     step6_save_results(df_features_raw, df_results, labels)

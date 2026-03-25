@@ -6,6 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Erstelle immer zuerst einen Plan und warte auf meine Bestätigung bevor du etwas änderst
 - Arbeite in kleinen Schritten – eine Funktion nach der anderen
 - Frage nach wenn etwas unklar ist, statt Annahmen zu treffen
+- Zeige mir immer was du ändern möchtest und warte auf meine Bestätigung
 
 
 ## Project Overview

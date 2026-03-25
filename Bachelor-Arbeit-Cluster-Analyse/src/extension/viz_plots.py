@@ -564,6 +564,102 @@ def elbow_plot(
     print(f"  Elbow-Plot gespeichert -> {out}")
 
 
+# ── Plot 6 ────────────────────────────────────────────────────────────────────
+
+def dendrogram_plot(
+    df_features_z: pd.DataFrame,
+    selection: dict,
+    cfg,
+) -> None:
+    """
+    Plot 6: Dendrogramm des hierarchischen Clusterings.
+
+    Nur sinnvoll bei hierarchischem Clustering. Zeigt die Merge-Hierarchie
+    mit einer horizontalen gestrichelten Linie beim Schnitt fuer k Cluster.
+
+    Parameters
+    ----------
+    df_features_z : Z-transformierte Feature-Tabelle mit Spalte 'Subject'
+    selection     : dict mit 'linkage' und 'k'
+    cfg           : config-Modul (benoetigt OUTPUT_PLOTS_DIR, RANDOM_STATE)
+    """
+    from scipy.cluster.hierarchy import linkage, dendrogram
+
+    linkage_method = selection["linkage"]
+    k              = selection["k"]
+
+    X        = df_features_z.drop(columns=["Subject"]).to_numpy(dtype=float)
+    subjects = df_features_z["Subject"].tolist()
+    n        = len(subjects)
+
+    Z = linkage(X, method=linkage_method)
+
+    # Schnittlinie: Mitte zwischen dem Merge der k→k-1 Reduktion
+    # und dem letzten Merge innerhalb der k Cluster.
+    # Z ist (n-1, 4); Zeile n-k ist der Merge von k+1 auf k Cluster,
+    # Zeile n-k-1 ist der letzte Merge innerhalb der k Cluster.
+    cut_upper = float(Z[n - k,     2])
+    cut_lower = float(Z[n - k - 1, 2]) if k < n - 1 else 0.0
+    cut_y     = (cut_upper + cut_lower) / 2.0
+
+    # Graustufen fuer k Cluster: gleichmaessig von #000000 bis #AAAAAA
+    if k > 1:
+        step = 0xAA / (k - 1)
+        _grey_colors = [
+            f"#{int(round(i * step)):02X}{int(round(i * step)):02X}{int(round(i * step)):02X}"
+            for i in range(k)
+        ]
+    else:
+        _grey_colors = ["#000000"]
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.set_title(
+        f"Dendrogramm \u2013 Hierarchisches Clustering"
+        f" (Linkage: {linkage_method}, k={k})"
+    )
+
+    # Dendrogramm mit Standard-Einfärbung zeichnen (gibt k unterschiedliche Farben)
+    dendrogram(
+        Z,
+        labels=subjects,
+        ax=ax,
+        color_threshold=cut_y,
+        above_threshold_color="#DDDDDD",
+    )
+
+    # scipy-Farben unterhalb der Schnittlinie inventarisieren und
+    # durch Graustufen ersetzen; Äste oberhalb bleiben #DDDDDD
+    scipy_colors = []
+    for line in ax.get_lines():
+        c = line.get_color()
+        if c != "#DDDDDD" and c not in scipy_colors:
+            scipy_colors.append(c)
+
+    color_remap = {sc: _grey_colors[i % len(_grey_colors)]
+                   for i, sc in enumerate(scipy_colors)}
+    color_remap["#DDDDDD"] = "#DDDDDD"
+
+    for line in ax.get_lines():
+        c = line.get_color()
+        line.set_color(color_remap.get(c, c))
+
+    ax.axhline(cut_y, linestyle="--", color="black", linewidth=1.2,
+               label=f"Schnitt bei k={k}  (d = {cut_y:.2f})")
+    ax.set_ylabel("Distanz")
+    ax.tick_params(axis="x", labelsize=9, rotation=45)
+    plt.setp(ax.get_xticklabels(), ha="right")
+    ax.legend(frameon=True, fontsize=9)
+    ax.grid(False)
+
+    fig.tight_layout()
+
+    cfg.OUTPUT_PLOTS_DIR.mkdir(parents=True, exist_ok=True)
+    out = cfg.OUTPUT_PLOTS_DIR / "dendrogram.png"
+    fig.savefig(out, dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Dendrogramm gespeichert -> {out}")
+
+
 # ── Alle Plots auf einmal ─────────────────────────────────────────────────────
 
 def create_all_plots(
@@ -571,16 +667,21 @@ def create_all_plots(
     labels: "pd.Series",
     df_results: pd.DataFrame,
     cfg,
+    selection: dict,
+    df_features_z: pd.DataFrame,
 ) -> None:
     """
-    Erzeugt alle vier Dual-Axis Plots mit den finalen Cluster-Labels.
+    Erzeugt alle Dual-Axis Plots mit den finalen Cluster-Labels.
+    Bei hierarchischem Clustering zusaetzlich das Dendrogramm.
 
     Parameters
     ----------
-    df         : langer Datensatz (Subject x km) ohne cluster_label
-    labels     : pd.Series mit Index=Subject, Values=Cluster-Label
-    df_results : Ausgabe von evaluate_clustering_methods() + add_best_flag()
-    cfg        : config-Modul (benoetigt OUTPUT_PLOTS_DIR)
+    df            : langer Datensatz (Subject x km) ohne cluster_label
+    labels        : pd.Series mit Index=Subject, Values=Cluster-Label
+    df_results    : Ausgabe von evaluate_clustering_methods() + add_best_flag()
+    cfg           : config-Modul (benoetigt OUTPUT_PLOTS_DIR)
+    selection     : dict mit 'method', optional 'linkage', 'k'
+    df_features_z : Z-transformierte Feature-Tabelle (fuer Dendrogramm)
     """
     print("\n=== Schritt 5b: Plots erstellen ===")
 
@@ -601,6 +702,12 @@ def create_all_plots(
 
     print("  Plot 4: metrics_table ...")
     metrics_table(df_results, out_dir=cfg.OUTPUT_PLOTS_DIR)
+
+    if selection["method"] == "hierarchical":
+        print("  Plot 6: dendrogram_plot ...")
+        dendrogram_plot(df_features_z, selection, cfg)
+    else:
+        print("  Dendrogramm: uebersprungen (nur bei hierarchischem Clustering)")
 
     plt.close("all")
     print(f"  Plots gespeichert -> {cfg.OUTPUT_PLOTS_DIR}")
