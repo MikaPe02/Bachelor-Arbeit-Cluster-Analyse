@@ -180,6 +180,8 @@ def dual_axis_arrows(
     )
 
     color_map = _build_color_map(merged[cluster_col])
+    if "Noise" in color_map:
+        color_map["Noise"] = "#AAAAAA"
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
     ax.set_title("Erm\u00fcdungsverlauf im Dual-Axis Raum (km 1.0 \u2192 km 9.5)")
@@ -210,7 +212,10 @@ def dual_axis_arrows(
 
     # Legende
     handles = [
-        mpatches.Patch(color=color_map[lab], label=str(lab))
+        mpatches.Patch(
+            color=color_map[lab],
+            label="Noise (HDBSCAN)" if lab == "Noise" else str(lab),
+        )
         for lab in sorted(color_map)
     ]
     ax.legend(handles=handles, title=cluster_col, loc="best", frameon=True)
@@ -244,6 +249,8 @@ def cluster_scatter(
         raise ValueError("Keine Daten bei km=1.0 gefunden.")
 
     color_map = _build_color_map(snap[cluster_col])
+    if "Noise" in color_map:
+        color_map["Noise"] = "#AAAAAA"
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
     ax.set_title("Clustering-Ergebnis im Dual-Axis Raum")
@@ -254,8 +261,9 @@ def cluster_scatter(
         sub = snap[snap[cluster_col] == lab]
         c   = color_map[lab]
 
+        scatter_label = "Noise (HDBSCAN)" if lab == "Noise" else str(lab)
         ax.scatter(sub["DF"], sub["SF_norm"],
-                   color=c, s=60, alpha=0.85, zorder=3, label=str(lab))
+                   color=c, s=60, alpha=0.85, zorder=3, label=scatter_label)
 
         # Zentroid als X
         cx = sub["DF"].mean()
@@ -310,14 +318,59 @@ def metrics_table(
     mask = df_results["method"] == "kmeans"
     if mask.any():
         groups.append(("kmeans", None, df_results[mask].copy()))
+    mask = df_results["method"] == "hdbscan"
+    if mask.any():
+        groups.append(("hdbscan", None, df_results[mask].copy()))
 
     # ── Zeilen aufbauen ───────────────────────────────────────────────────────
     display_rows: list[dict] = []
+    _best_hdb_row = None  # fuer HDBSCAN-Fussnote in der Legende
 
     for method, linkage, df_grp in groups:
         best_rows = df_grp[df_grp["is_best"] == True]
         if best_rows.empty:
             continue
+
+        # ── HDBSCAN: eine Zeile pro min_cluster_size (bestes rank_mean) ───────
+        if method == "hdbscan":
+            valid = df_grp[df_grp["silhouette"].notna()].copy()
+            if valid.empty:
+                continue
+
+            # Globale beste HDBSCAN-Zeile fuer is_best-Markierung und Legende
+            if "rank_mean" in best_rows.columns and best_rows["rank_mean"].notna().any():
+                best_idx      = best_rows["rank_mean"].idxmin()
+            else:
+                best_idx      = best_rows["silhouette"].idxmax()
+            _best_hdb_row = df_grp.loc[best_idx]
+
+            mcs_values = sorted(valid["min_cluster_size"].unique())[:3]
+            for mcs in mcs_values:
+                mcs_rows = valid[valid["min_cluster_size"] == mcs]
+                if mcs_rows.empty:
+                    continue
+                if "rank_mean" in mcs_rows.columns and mcs_rows["rank_mean"].notna().any():
+                    r = mcs_rows.loc[mcs_rows["rank_mean"].idxmin()]
+                else:
+                    r = mcs_rows.loc[mcs_rows["silhouette"].idxmax()]
+
+                row_data = [
+                    "HDBSCAN", f"mcs={int(mcs)}", f"{int(r['n_clusters_found'])}*",
+                    f"{r['silhouette']:.4f}",
+                    f"{r['davies_bouldin']:.4f}",
+                    f"{r['calinski_harabasz']:.2f}",
+                ]
+                display_rows.append({
+                    "data":          row_data,
+                    "is_best":       (r.name == best_idx),
+                    "exists":        True,
+                    "last_in_group": False,
+                })
+            if display_rows:
+                display_rows[-1]["last_in_group"] = True
+            continue
+
+        # ── k-Means / Hierarchisch: best_k ± 1 ───────────────────────────────
         best_k      = int(best_rows.iloc[0]["k"])
         method_lbl  = "Hierarchisch" if method == "hierarchical" else "k-Means"
         linkage_lbl = linkage.capitalize() if linkage else "\u2014"
@@ -355,7 +408,7 @@ def metrics_table(
     table_h_in   = n_total_rows * row_h_in
     title_h_in   = 0.50
     sep_h_in     = 0.18
-    legend_h_in  = 1.55
+    legend_h_in  = 2.15
     pad_in       = 0.28
     fig_h        = title_h_in + table_h_in + sep_h_in + legend_h_in + pad_in
 
@@ -479,8 +532,19 @@ def metrics_table(
         " (Rang-Aggregation \u00fcber alle drei Kennwerte).\u2003"
         "Grauer Text\u202f=\u202fk nicht im getesteten Bereich.\u2003"
         "\u2191\u202fh\u00f6her ist besser.\u2003"
-        "\u2193\u202fniedriger ist besser."
+        "\u2193\u202fniedriger ist besser.\n\n"
+
+        "k\u202f=\u202fAnzahl der Cluster.\u2003"
+        "mcs\u202f=\u202fmin_cluster_size (HDBSCAN: Mindestgr\u00f6\u00dfe eines Clusters)."
     )
+
+    if _best_hdb_row is not None:
+        _hdb_mcs = int(_best_hdb_row["min_cluster_size"])
+        _hdb_ms  = "auto" if pd.isna(_best_hdb_row["min_samples"]) else str(int(_best_hdb_row["min_samples"]))
+        legend_text += (
+            f"\n\n* k automatisch durch HDBSCAN bestimmt"
+            f" (min_cluster_size={_hdb_mcs}, min_samples={_hdb_ms})."
+        )
 
     ax_leg.text(
         0.0, 1.0, legend_text,

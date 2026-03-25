@@ -25,19 +25,45 @@ import config
 
 # ── Hilfsfunktion ─────────────────────────────────────────────────────────────
 
-def _global_best_row(df_results: pd.DataFrame) -> pd.Series:
+def _global_best_row(df_results: pd.DataFrame, verbose: bool = False) -> pd.Series:
     """Gibt die global beste Konfiguration zurueck.
 
-    Kriterium: niedrigstes rank_mean ueber alle is_best-Zeilen.
-    Fallback auf hoechsten Silhouette-Score falls rank_mean fehlt.
-    """
-    best_rows = df_results[df_results["is_best"] == True]
-    if best_rows.empty:
-        best_rows = df_results
+    Kriterium: frische Rang-Aggregation ueber die absoluten Metrikwerte
+    (Silhouette hoch, Davies-Bouldin niedrig, Calinski-Harabasz hoch)
+    aller is_best-Zeilen (eine beste pro Methode/Linkage-Gruppe).
+    So sind rank_mean-Werte verschiedener Gruppen nicht mehr noetig –
+    es zaehlen die echten Messwerte im direkten Vergleich.
+    Tiebreaker: hoehere Silhouette.
 
-    if "rank_mean" in best_rows.columns:
-        return best_rows.loc[best_rows["rank_mean"].idxmin()]
-    return best_rows.loc[best_rows["silhouette"].idxmax()]
+    Parameters
+    ----------
+    verbose : bool
+        True = cross_rank_mean aller is_best-Zeilen ausgeben (Diagnose).
+    """
+    best_rows = df_results[df_results["is_best"] == True].copy()
+    if best_rows.empty:
+        best_rows = df_results.copy()
+
+    # Nur Zeilen mit gueltigen Metriken fuer den Vergleich verwenden
+    valid = best_rows[best_rows["silhouette"].notna()].copy()
+    if valid.empty:
+        return best_rows.loc[best_rows["silhouette"].idxmax()]
+
+    # Frische methodenuebergreifende Rang-Aggregation auf absoluten Werten
+    valid["_rank_sil"] = valid["silhouette"].rank(ascending=False)
+    valid["_rank_db"]  = valid["davies_bouldin"].rank(ascending=True)
+    valid["_rank_ch"]  = valid["calinski_harabasz"].rank(ascending=False)
+    valid["_cross_rank_mean"] = valid[["_rank_sil", "_rank_db", "_rank_ch"]].mean(axis=1)
+
+    if verbose:
+        print("  [DEBUG] _global_best_row() cross_rank_mean:")
+        for _, row in valid.iterrows():
+            print(f"    {row['method']}, linkage={row.get('linkage')}, "
+                  f"sil={row['silhouette']:.4f}, cross_rank={row['_cross_rank_mean']:.3f}")
+
+    return valid.sort_values(
+        ["_cross_rank_mean", "silhouette"], ascending=[True, False]
+    ).iloc[0]
 
 
 # ── Oeffentliche Funktionen ───────────────────────────────────────────────────
@@ -52,7 +78,19 @@ def show_metrics_summary(df_results: pd.DataFrame) -> None:
     best_rows   = df_results[df_results["is_best"] == True].copy()
     global_best = _global_best_row(df_results)
 
-    gb_key = (global_best["method"], str(global_best.get("linkage", "")), int(global_best["k"]))
+    # HDBSCAN: nur die eine beste Parameterkombination (niedrigstes rank_mean) anzeigen
+    hdb = best_rows[best_rows["method"] == "hdbscan"]
+    if not hdb.empty and "rank_mean" in hdb.columns and hdb["rank_mean"].notna().any():
+        hdb = hdb.loc[[hdb["rank_mean"].idxmin()]]
+    best_rows = pd.concat(
+        [best_rows[best_rows["method"] != "hdbscan"], hdb]
+    ).sort_index()
+
+    def _k_display(row) -> int:
+        """k fuer Anzeige: bei HDBSCAN n_clusters_found, sonst k."""
+        return int(row["k"]) if pd.notna(row.get("k")) else int(row["n_clusters_found"])
+
+    gb_key = (global_best["method"], str(global_best.get("linkage", "")), _k_display(global_best))
 
     header = (
         f"  {'':2s}  {'Methode':<14s}  {'Linkage':<10s}  {'k':>2s}"
@@ -63,11 +101,11 @@ def show_metrics_summary(df_results: pd.DataFrame) -> None:
     print(sep)
 
     for _, row in best_rows.iterrows():
-        key         = (row["method"], str(row.get("linkage", "")), int(row["k"]))
+        key         = (row["method"], str(row.get("linkage", "")), _k_display(row))
         marker      = "→" if key == gb_key else " "
         linkage_str = str(row["linkage"]) if pd.notna(row.get("linkage")) else ""
         print(
-            f"  {marker}   {row['method']:<14s}  {linkage_str:<10s}  {int(row['k']):>2d}"
+            f"  {marker}   {row['method']:<14s}  {linkage_str:<10s}  {_k_display(row):>2d}"
             f"  {row['silhouette']:>10.4f}  {row['davies_bouldin']:>14.4f}"
             f"  {row['calinski_harabasz']:>17.4f}"
         )
@@ -77,7 +115,7 @@ def show_metrics_summary(df_results: pd.DataFrame) -> None:
     criterion  = "rank_mean" if "rank_mean" in df_results.columns else "Silhouette"
     print(
         f"  → Global beste Konfiguration ({criterion}): "
-        f"{global_best['method']}, Linkage={gb_linkage}, k={int(global_best['k'])}"
+        f"{global_best['method']}, Linkage={gb_linkage}, k={_k_display(global_best)}"
     )
 
 
@@ -94,7 +132,7 @@ def select_clustering(df_results: pd.DataFrame) -> dict:
     gb_method   = global_best["method"]
     gb_linkage  = global_best.get("linkage")
     gb_linkage  = str(gb_linkage) if pd.notna(gb_linkage) else None
-    gb_k        = int(global_best["k"])
+    gb_k        = int(global_best["k"]) if pd.notna(global_best.get("k")) else int(global_best["n_clusters_found"])
 
     linkage_label = f", Linkage={gb_linkage}" if gb_linkage else ""
     print(f"  Empfehlung: {gb_method}{linkage_label}, k={gb_k}")
@@ -109,6 +147,11 @@ def select_clustering(df_results: pd.DataFrame) -> dict:
         print("  Ungueltige Eingabe, bitte nochmal:")
 
     if choice == "1":
+        if gb_method == "hdbscan":
+            gb_mcs = int(global_best["min_cluster_size"])
+            gb_ms  = None if pd.isna(global_best.get("min_samples")) else int(global_best["min_samples"])
+            return {"method": "hdbscan", "linkage": None, "k": gb_k,
+                    "min_cluster_size": gb_mcs, "min_samples": gb_ms}
         return {"method": gb_method, "linkage": gb_linkage, "k": gb_k}
 
     # ── Methode waehlen ───────────────────────────────────────────────────────
@@ -118,6 +161,7 @@ def select_clustering(df_results: pd.DataFrame) -> dict:
         "3": ("hierarchical", "complete"),
         "4": ("hierarchical", "average"),
         "5": ("hierarchical", "single"),
+        "6": ("hdbscan",      None),
     }
     while True:
         print("\n  Methode:")
@@ -126,11 +170,28 @@ def select_clustering(df_results: pd.DataFrame) -> dict:
         print("    [3] Complete")
         print("    [4] Average")
         print("    [5] Single")
+        print("    [6] HDBSCAN")
         m_choice = input("  Auswahl: ").strip()
         if m_choice in method_map:
             sel_method, sel_linkage = method_map[m_choice]
             break
         print("  Ungueltige Eingabe, bitte nochmal:")
+
+    # ── HDBSCAN: beste Parameterkombination automatisch uebernehmen ───────────
+    if sel_method == "hdbscan":
+        hdb_rows = df_results[(df_results["method"] == "hdbscan") & (df_results["is_best"] == True)]
+        if hdb_rows.empty:
+            hdb_rows = df_results[df_results["method"] == "hdbscan"]
+        if "rank_mean" in hdb_rows.columns and hdb_rows["rank_mean"].notna().any():
+            best_hdb = hdb_rows.loc[hdb_rows["rank_mean"].idxmin()]
+        else:
+            best_hdb = hdb_rows.loc[hdb_rows["silhouette"].idxmax()]
+        sel_mcs = int(best_hdb["min_cluster_size"])
+        sel_ms  = None if pd.isna(best_hdb["min_samples"]) else int(best_hdb["min_samples"])
+        sel_k   = int(best_hdb["n_clusters_found"])
+        print(f"\n  Gewaehlt: hdbscan, min_cluster_size={sel_mcs}, min_samples={sel_ms}, k={sel_k} (automatisch)")
+        return {"method": "hdbscan", "linkage": None, "k": sel_k,
+                "min_cluster_size": sel_mcs, "min_samples": sel_ms}
 
     # Empfohlenes k fuer die gewaehlte Methode/Linkage ermitteln
     mask = df_results["method"] == sel_method

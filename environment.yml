@@ -1,0 +1,12 @@
+name: fatigue
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11.14
+  - numpy=2.4.2
+  - pandas=3.0.0
+  - scipy=1.16.3
+  - scikit-learn=1.7.1
+  - matplotlib=3.10.8
+  - hdbscan=0.8.41

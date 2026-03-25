@@ -64,7 +64,7 @@ K_RANGE = range(2, 7)  # testet k = 2, 3, 4, 5, 6
 # True = aktiv, False = ueberspringen
 RUN_KMEANS        = True
 RUN_HIERARCHICAL  = True
-RUN_HDBSCAN       = False  # False bis hdbscan installiert ist
+RUN_HDBSCAN       = True
 
 # Linkage-Methoden fuer hierarchisches Clustering
 # Empfehlung fuer BA: ward + complete als Hauptmethoden
