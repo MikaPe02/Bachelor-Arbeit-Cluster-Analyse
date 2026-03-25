@@ -38,7 +38,11 @@ from sklearn.metrics import (
     calinski_harabasz_score,
 )
 
-import hdbscan
+try:
+    import hdbscan
+    HAS_HDBSCAN = True
+except ImportError:
+    HAS_HDBSCAN = False
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -196,6 +200,12 @@ def fit_hdbscan(
     -------
     tuple: (labels, n_clusters_found, n_noise)
     """
+    if not HAS_HDBSCAN:
+        raise SystemExit(
+            "\nFEHLER: hdbscan ist nicht installiert.\n"
+            "Bitte installieren mit:\n"
+            "  pip install hdbscan\n"
+        )
     clusterer = hdbscan.HDBSCAN(
         min_cluster_size=min_cluster_size,
         min_samples=min_samples,

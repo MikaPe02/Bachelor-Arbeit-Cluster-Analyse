@@ -19,7 +19,7 @@ Bachelor's thesis project analyzing running fatigue via biomechanical clustering
 - Python executable: `C:\Users\Mika\.conda\envs\fatigue\python.exe`
 - Python >=3.11 (uses `list[str] | None` union syntax natively)
 - Key dependencies: `numpy`, `scipy`, `pandas`, `scikit-learn`, `matplotlib`
-- Optional: `hdbscan` (install via `pip install hdbscan` or `conda install -c conda-forge hdbscan`)
+- Optional: `hdbscan` (install via `pip install hdbscan`); if missing, pipeline runs but selecting HDBSCAN raises a clear `SystemExit` with install instructions
 
 ## Running Scripts
 
@@ -35,7 +35,7 @@ python main.py
 # (Standalone) Regenerate plots without re-running the full pipeline
 python exploration/20_create_plots.py
 
-# (Real data) Extract DF and SF_norm from MAT files
+# (Real data) Extract DF and SF_norm from MAT files (opens folder-picker dialog)
 python extract_to_csv.py
 ```
 
@@ -53,7 +53,7 @@ Single entry point for the full analysis. All implementation logic lives in src 
 4c. `show_metrics_summary(df_results)` — best config per method/linkage in terminal
 4d. `select_clustering(df_results)` — interactive menu: accept recommendation or choose manually
 5. `step5_run_final_clustering()` — runs chosen method/k via `run_final_clustering()`
-5b. `create_all_plots(df, labels, df_results, config)` — all 4 plots saved to `Outputs/Plots/`
+5b. `create_all_plots(df, labels, df_results, config, selection, df_features_z)` — all plots saved to `Outputs/Plots/`; includes `dendrogram_plot()` if `selection["method"] == "hierarchical"`
 6. `step6_save_results()` — saves `fatigue_features.csv`, `cluster_results.csv`, `cluster_labels.csv`
 7. `sanity_check(df)` — DF and SF_norm range per subject
 
@@ -71,15 +71,15 @@ sys.path.append(str(PROJECT_ROOT / "Bachelor-Arbeit-Cluster-Analyse" / "src"))
 - `fatigue_metrics.py` — builds per-subject features: `Delta` (last − first) and `Slope` (linear regression) for DF and SF_norm. Entry point: `build_fatigue_feature_table(df_dual_axis)`.
 - `preprocessing.py` — `z_transform(df_features)` (StandardScaler), `sanity_check(df)` (range check per subject).
 - `clustering_eval.py` — k-Means, hierarchical (ward/complete/average/single), HDBSCAN. Entry points: `run_clustering_comparison(df_features_z, cfg)`, `run_final_clustering(df_features_z, selection, random_state)`, `add_best_flag(df_eval)`. Best-k selection via rank aggregation over Silhouette, Davies-Bouldin, Calinski-Harabasz.
-- `clustering_ui.py` — interactive terminal menus. `show_metrics_summary(df_results)`: table of best configs, global best marked with →. `select_clustering(df_results)`: method + k selection with input validation. Global best determined by lowest `rank_mean`; fallback to highest Silhouette.
+- `clustering_ui.py` — interactive terminal menus. `show_metrics_summary(df_results)`: table of best configs, global best marked with `>`. `select_clustering(df_results)`: method + k selection with input validation, includes HDBSCAN option; returns dict with `method`, `linkage`, `k` (plus `min_cluster_size`/`min_samples` for HDBSCAN). Global best via cross-method re-ranking on absolute metric values; tiebreaker: highest Silhouette.
 
 **`extension/` package** — visualization:
-- `viz_plots.py` — all publication-ready plots. Shared constants: `XLIM=(0.45, 0.78)`, `YLIM=(0.65, 1.08)`, `_PALETTE` (Paul Tol), `DPI=300`. Functions: `dual_axis_snapshot()`, `dual_axis_arrows()`, `cluster_scatter()`, `metrics_table()` (booktabs-style, black/white/grey), `elbow_plot(df_results, df_features_z, cfg)`, `create_all_plots(df, labels, df_results, cfg)`.
+- `viz_plots.py` — all publication-ready plots. Shared constants: `XLIM=(0.45, 0.78)`, `YLIM=(0.65, 1.08)`, `_PALETTE` (Paul Tol), `DPI=300`. Functions: `dual_axis_snapshot()`, `dual_axis_arrows()`, `cluster_scatter()`, `metrics_table()` (booktabs-style; HDBSCAN shown as one row per min_cluster_size, Linkage column shows `mcs=X`, footnote for auto-k), `elbow_plot(df_results, df_features_z, cfg)`, `dendrogram_plot(df_features_z, linkage_method)` (grayscale, cut line, only called for hierarchical), `create_all_plots(df, labels, df_results, cfg, selection, df_features_z)`. Noise points (HDBSCAN label -1) shown in `#AAAAAA` with "Noise (HDBSCAN)" legend entry.
 
 ### Configuration: `config.py`
 
 Key settings:
-- `DATA_RAW_FOLDER` — path to local `.mat` files (not in git, adjust per machine)
+- `DATA_RAW_FOLDER = None` — folder is selected via dialog in `extract_to_csv.py` at runtime
 - `SUBJECTS_CSV` — `data/subjects.csv` with columns `Subject`, `leg_length_m`, `body_height_m`
 - `MIN_SUBJECTS = 3` — minimum subjects required before clustering
 - `K_RANGE`, `RUN_KMEANS`, `RUN_HIERARCHICAL`, `RUN_HDBSCAN`, `HIERARCHICAL_LINKAGES`
@@ -108,6 +108,7 @@ Outputs/Plots/dual_axis_snapshot.png
 Outputs/Plots/dual_axis_arrows.png
 Outputs/Plots/cluster_scatter.png
 Outputs/Plots/metrics_table.png
+Outputs/Plots/dendrogram_plot.png         (only if hierarchical clustering selected)
 ```
 
 ### MAT File Structure

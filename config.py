@@ -21,9 +21,8 @@ from pathlib import Path
 # Wurzelverzeichnis des Projekts (dort wo config.py liegt)
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-# Pfad zu den MAT-Rohdaten (lokal, nicht in Git)
-# ANPASSEN: falls die Daten woanders liegen
-DATA_RAW_FOLDER = r"C:\Users\Mika\Uni\BA\Beispiel Daten"
+# Pfad zu den MAT-Rohdaten – wird per Ordnerauswahl in extract_to_csv.py gesetzt
+DATA_RAW_FOLDER = None
 
 # Verarbeitete Daten (werden von extract_to_csv.py erzeugt)
 DATA_PROCESSED_DIR  = PROJECT_ROOT / "data" / "processed"

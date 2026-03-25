@@ -19,6 +19,8 @@
 
 # ── Imports ──────────────────────────────────────────────────────────────────
 import sys
+import tkinter as tk
+from tkinter import filedialog
 from pathlib import Path
 
 import pandas as pd
@@ -34,9 +36,6 @@ from fatigue.features import compute_duty_factor, compute_sf_norm, estimate_leg_
 
 
 # ── Konfiguration ─────────────────────────────────────────────────────────────
-# Pfad zu den MAT-Rohdaten (lokal, nicht in Git)
-DATA_RAW_FOLDER = r"C:\Users\Mika\Uni\BA\Beispiel Daten"
-
 # Output
 OUTPUT_FILE = project_root / "data" / "processed" / "dual_axis_dataset.csv"
 
@@ -136,7 +135,7 @@ def extract_all(data_folder: str, leg_lengths: dict) -> pd.DataFrame:
             # Beinlänge bestimmen
             leg_length = leg_lengths.get(subject, LEG_LENGTH_FALLBACK)
             if subject not in leg_lengths:
-                print(f"  ⚠ {mat_path.name}: Proband '{subject}' nicht in subjects.csv → Platzhalter")
+                print(f"  WARNUNG {mat_path.name}: Proband '{subject}' nicht in subjects.csv -> Platzhalter")
 
             # MAT laden und Parameter extrahieren
             mat = load_mat(mat_path)
@@ -154,10 +153,10 @@ def extract_all(data_folder: str, leg_lengths: dict) -> pd.DataFrame:
                 leg_length_m = leg_length,
             ))
 
-            print(f"  ✓ {mat_path.name:<30} DF={df_val:.4f}  SF_norm={sf_norm:.4f}")
+            print(f"  OK {mat_path.name:<30} DF={df_val:.4f}  SF_norm={sf_norm:.4f}")
 
         except Exception as e:
-            print(f"  ✗ {mat_path.name}: FEHLER – {e}")
+            print(f"  FEHLER {mat_path.name}: {e}")
             errors.append((mat_path.name, str(e)))
 
     print("-" * 50)
@@ -183,16 +182,29 @@ if __name__ == "__main__":
     leg_lengths = load_subject_metadata(SUBJECTS_FILE)
     print(f"Bekannte Probanden: {len(leg_lengths)}")
 
-    # Schritt 2: Alle MAT-Dateien extrahieren
-    df = extract_all(DATA_RAW_FOLDER, leg_lengths)
+    # Schritt 2: Ordner mit MAT-Dateien auswaehlen
+    root = tk.Tk()
+    root.withdraw()
+    root.attributes("-topmost", True)
+    data_raw_folder = filedialog.askdirectory(
+        title="Ordner mit MAT-Dateien auswaehlen",
+        parent=root,
+    )
+    root.destroy()
+    if not data_raw_folder:
+        raise SystemExit("Kein Ordner ausgewaehlt - Programm wird beendet.")
+    print(f"\nAusgewaehlter Ordner: {data_raw_folder}")
+
+    # Schritt 3: Alle MAT-Dateien extrahieren
+    df = extract_all(data_raw_folder, leg_lengths)
 
     if df.empty:
         raise SystemExit("Keine Daten extrahiert - Programm wird beendet.")
 
-    # Schritt 3: Sortieren nach Proband und km
+    # Schritt 4: Sortieren nach Proband und km
     df = df.sort_values(["Subject", "km"]).reset_index(drop=True)
 
-    # Schritt 4: Speichern
+    # Schritt 5: Speichern
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(OUTPUT_FILE, index=False)
 

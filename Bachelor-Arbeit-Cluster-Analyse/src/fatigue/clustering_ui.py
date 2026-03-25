@@ -102,7 +102,7 @@ def show_metrics_summary(df_results: pd.DataFrame) -> None:
 
     for _, row in best_rows.iterrows():
         key         = (row["method"], str(row.get("linkage", "")), _k_display(row))
-        marker      = "→" if key == gb_key else " "
+        marker      = ">" if key == gb_key else " "
         linkage_str = str(row["linkage"]) if pd.notna(row.get("linkage")) else ""
         print(
             f"  {marker}   {row['method']:<14s}  {linkage_str:<10s}  {_k_display(row):>2d}"
@@ -114,7 +114,7 @@ def show_metrics_summary(df_results: pd.DataFrame) -> None:
     gb_linkage = str(global_best["linkage"]) if pd.notna(global_best.get("linkage")) else "–"
     criterion  = "rank_mean" if "rank_mean" in df_results.columns else "Silhouette"
     print(
-        f"  → Global beste Konfiguration ({criterion}): "
+        f"  > Global beste Konfiguration ({criterion}): "
         f"{global_best['method']}, Linkage={gb_linkage}, k={_k_display(global_best)}"
     )
 

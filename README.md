@@ -19,6 +19,7 @@ Optional (dichtebasiertes Clustering):
 ```bash
 pip install hdbscan
 ```
+Fehlt `hdbscan`, läuft die Pipeline normal durch. Wird HDBSCAN gewählt oder `RUN_HDBSCAN = True` gesetzt, erscheint eine klare Fehlermeldung mit dem obigen Install-Befehl.
 
 ---
 
@@ -38,13 +39,12 @@ python main.py
 
 ```bash
 # 1. DF und SF_norm aus MAT-Dateien extrahieren
+#    -> Beim Start öffnet sich ein Ordner-Auswahldialog
 python extract_to_csv.py
 
 # 2. Analyse-Pipeline ausführen (inkl. interaktiver Methodenwahl + Plots)
 python main.py
 ```
-
-Pfad zu den MAT-Dateien in `config.py` unter `DATA_RAW_FOLDER` anpassen.
 
 ---
 
@@ -60,6 +60,7 @@ Pfad zu den MAT-Dateien in `config.py` unter `DATA_RAW_FOLDER` anpassen.
 | `Outputs/Plots/dual_axis_arrows.png` | Ermüdungsverlauf km 1.0 → 9.5 |
 | `Outputs/Plots/cluster_scatter.png` | Clustering-Ergebnis mit Zentroiden |
 | `Outputs/Plots/metrics_table.png` | Validierungsmetriken aller Methoden als Tabelle |
+| `Outputs/Plots/dendrogram_plot.png` | Dendrogram (nur bei hierarchischem Clustering) |
 
 ---
 
@@ -94,7 +95,7 @@ data/
 
 | Parameter | Bedeutung |
 |---|---|
-| `DATA_RAW_FOLDER` | Pfad zu den lokalen MAT-Dateien |
+| `DATA_RAW_FOLDER` | `None` – Ordner wird per Dialog in `extract_to_csv.py` gewählt |
 | `MIN_SUBJECTS` | Mindestanzahl Probanden (Standard: 3) |
 | `K_RANGE` | Zu testende Clusteranzahlen |
 | `RUN_KMEANS / RUN_HIERARCHICAL / RUN_HDBSCAN` | Methoden ein-/ausschalten |
