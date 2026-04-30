@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Bachelor's thesis project analyzing running fatigue via biomechanical clustering. Raw motion capture data (`.mat` files from MATLAB) is processed to extract the **Dual-Axis Framework** parameters (Duty Factor and normalized Step Frequency), which are then used for unsupervised clustering of subjects by fatigue patterns.
+Bachelor's thesis project analyzing running fatigue via biomechanical clustering. Raw motion capture data (`.mat` files from MATLAB) is processed to extract the **Dual-Axis Framework** parameters (Duty Factor and normalized Step Frequency). Subjects are clustered by **running style** (DF_residual, SF_norm_residual at km 1.0, speed-corrected) and then analyzed for fatigue patterns within each style cluster.
 
 ## Environment
 
@@ -43,19 +43,20 @@ python extract_to_csv.py
 
 ### Main Pipeline: `main.py`
 
-Single entry point for the full analysis. All implementation logic lives in src modules — `main.py` contains only function calls. Seven steps:
+Single entry point for the full analysis. All implementation logic lives in src modules — `main.py` contains only function calls. Eight steps:
 
-1. `step1_load_data()` — load `dual_axis_dataset.csv`, validate required columns
-2. `step2_compute_fatigue_features()` — `build_fatigue_feature_table()`; aborts with `sys.exit(1)` if `< config.MIN_SUBJECTS` subjects
-3. `z_transform()` — StandardScaler via `fatigue.preprocessing`
-4. `run_clustering_comparison(df_features_z, config)` — all methods vs. all k, rank aggregation
-4b. `elbow_plot(df_results, df_features_z, config)` — normalized WCSS % vs. k
-4c. `show_metrics_summary(df_results)` — best config per method/linkage in terminal
-4d. `select_clustering(df_results)` — interactive menu: accept recommendation or choose manually
-5. `step5_run_final_clustering()` — runs chosen method/k via `run_final_clustering()`
-5b. `create_all_plots(df, labels, df_results, config, selection, df_features_z)` — all plots saved to `Outputs/Plots/`; includes `dendrogram_plot()` if `selection["method"] == "hierarchical"`
-6. `step6_save_results()` — saves `fatigue_features.csv`, `cluster_results.csv`, `cluster_labels.csv`
-7. `sanity_check(df)` — DF and SF_norm range per subject
+1. `step1_load_data()` — load `dual_axis_dataset.csv`, validate required columns (incl. `speed_ms`); aborts if `speed_ms` missing
+2. `step2_compute_fatigue_features()` — `build_fatigue_feature_table()`; computes Delta + Slope per subject; aborts with `sys.exit(1)` if `< config.MIN_SUBJECTS` subjects. **Not used as clustering input** — saved for fatigue analysis within clusters.
+3. `step3_speed_correction()` — `compute_speed_residuals_km1(df)`; linear regression DF ~ speed_ms and SF_norm ~ speed_ms at km 1.0; returns `df_km1` with `DF_residual`, `SF_residual`; saves models to `SPEED_MODELS_PKL`
+4. `z_transform(df_km1[["Subject","DF_residual","SF_residual"]])` — StandardScaler on 2 clustering features → `df_style_z`
+5. `run_clustering_comparison(df_style_z, config)` — all methods vs. all k, rank aggregation
+5b. `elbow_plot(df_results, df_style_z, config)` — normalized WCSS % vs. k
+5c. `show_metrics_summary(df_results)` — best config per method/linkage in terminal
+5d. `select_clustering(df_results)` — interactive menu: accept recommendation or choose manually
+6. `step5_run_final_clustering()` — runs chosen method/k via `run_final_clustering()`
+6b. `create_all_plots(df, labels, df_results, config, selection, df_style_z)` — all plots saved to `Outputs/Plots/`; includes `dendrogram_plot()` if `selection["method"] == "hierarchical"`
+7. `step6_save_results()` — saves `fatigue_features.csv`, `cluster_results.csv`, `cluster_labels.csv`
+8. `sanity_check(df)` — DF and SF_norm range per subject
 
 ### Source Library: `Bachelor-Arbeit-Cluster-Analyse/src/`
 
@@ -68,9 +69,10 @@ sys.path.append(str(PROJECT_ROOT / "Bachelor-Arbeit-Cluster-Analyse" / "src"))
 **`fatigue/` package** — core pipeline:
 - `io.py` — MAT file loading. Filename is the only source for subject ID and km marker.
 - `features.py` — computes DF, SF, SF_norm. `StepFrequency` in MAT files is INT32_MAX (invalid); always recompute from ContactTimes/FlightTimes. Contains `estimate_leg_length(body_height_m)` using De Leva factor 0.53.
-- `fatigue_metrics.py` — builds per-subject features: `Delta` (last − first) and `Slope` (linear regression) for DF and SF_norm. Entry point: `build_fatigue_feature_table(df_dual_axis)`.
-- `preprocessing.py` — `z_transform(df_features)` (StandardScaler), `sanity_check(df)` (range check per subject).
-- `clustering_eval.py` — k-Means, hierarchical (ward/complete/average/single), HDBSCAN. Entry points: `run_clustering_comparison(df_features_z, cfg)`, `run_final_clustering(df_features_z, selection, random_state)`, `add_best_flag(df_eval)`. Best-k selection via rank aggregation over Silhouette, Davies-Bouldin, Calinski-Harabasz.
+- `fatigue_metrics.py` — builds per-subject features: `Delta` (last − first) and `Slope` (linear regression) for DF and SF_norm. Entry point: `build_fatigue_feature_table(df_dual_axis)`. Output columns: `DF_start`, `DF_end`, `Delta_DF`, `Slope_DF`, `SF_start`, `SF_end`, `Delta_SF`, `Slope_SF`. **Saved to CSV, not used as clustering input.**
+- `preprocessing.py` — `z_transform(df_features)` (StandardScaler on all non-Subject columns), `sanity_check(df)` (range check per subject).
+- `speed_correction.py` — speed-based residual correction. `compute_speed_residuals_km1(df_all)`: filters km==1.0, fits LinearRegression for DF ~ speed_ms and SF_norm ~ speed_ms, returns `df_km1` with `DF_residual`/`SF_residual` columns and a `models` dict. `save_models(models, path)` / `load_models(path)` via pickle. Aborts if `speed_ms` column missing.
+- `clustering_eval.py` — k-Means, hierarchical (ward/complete/average/single), HDBSCAN. Entry points: `run_clustering_comparison(df_style_z, cfg)`, `run_final_clustering(df_style_z, selection, random_state)`, `add_best_flag(df_eval)`. Best-k selection via rank aggregation over Silhouette, Davies-Bouldin, Calinski-Harabasz. **Input is always 2-feature style matrix (DF_residual, SF_residual), z-transformed.**
 - `clustering_ui.py` — interactive terminal menus. `show_metrics_summary(df_results)`: table of best configs, global best marked with `>`. `select_clustering(df_results)`: method + k selection with input validation, includes HDBSCAN option; returns dict with `method`, `linkage`, `k` (plus `min_cluster_size`/`min_samples` for HDBSCAN). Global best via cross-method re-ranking on absolute metric values; tiebreaker: highest Silhouette.
 
 **`extension/` package** — visualization:
@@ -80,29 +82,37 @@ sys.path.append(str(PROJECT_ROOT / "Bachelor-Arbeit-Cluster-Analyse" / "src"))
 
 Key settings:
 - `DATA_RAW_FOLDER = None` — folder is selected via dialog in `extract_to_csv.py` at runtime
-- `SUBJECTS_CSV` — `data/subjects.csv` with columns `Subject`, `leg_length_m`, `body_height_m`
+- `SUBJECTS_CSV` — `data/subjects.csv` with columns `Subject`, `leg_length_m`, `body_height_m`, `speed_ms`, `notes`
 - `MIN_SUBJECTS = 3` — minimum subjects required before clustering
 - `K_RANGE`, `RUN_KMEANS`, `RUN_HIERARCHICAL`, `RUN_HDBSCAN`, `HIERARCHICAL_LINKAGES`
 - `RANDOM_STATE = 42`
+- `SPEED_MODELS_PKL` — `Outputs/Data/speed_models_km1.pkl`; saved after speed correction in step 3
 - Output paths: `FATIGUE_FEATURES_CSV`, `CLUSTER_RESULTS_CSV`, `CLUSTER_LABELS_CSV`, `OUTPUT_PLOTS_DIR`
 
 ### Data Flow
 
 ```
-tests/generate_test_data.py          (synthetic: 30 subjects, 5 van Oeveren groups)
+tests/generate_test_data.py          (synthetic: 30 subjects, 5 van Oeveren groups, incl. speed_ms)
   OR
-extract_to_csv.py                    (real MAT files → uses fatigue.io + fatigue.features)
+extract_to_csv.py                    (real MAT files → uses fatigue.io + fatigue.features;
+                                      merges speed_ms from data/subjects.csv)
         |
         v
-data/processed/dual_axis_dataset.csv   [Subject, km, DF, SF_norm, ...]
+data/processed/dual_axis_dataset.csv   [Subject, km, DF, SF_norm, speed_ms, ...]
+data/subjects.csv                      [Subject, leg_length_m, body_height_m, speed_ms, notes]
         |
         v
 main.py
+  Step 2: fatigue_metrics  →  Delta/Slope per subject (saved only)
+  Step 3: speed_correction →  DF_residual, SF_residual at km 1.0
+  Step 4: z_transform      →  2-feature style matrix
+  Step 5: clustering       →  on DF_residual + SF_residual (running style)
         |
         v
-Outputs/Data/fatigue_features.csv    [1 row per subject, Delta/Slope features]
+Outputs/Data/fatigue_features.csv    [1 row per subject, Delta/Slope — for fatigue analysis]
 Outputs/Data/cluster_results.csv     [1 row per method/k, Silhouette/DB/CH scores, is_best]
-Outputs/Data/cluster_labels.csv      [1 row per subject, final cluster assignment]
+Outputs/Data/cluster_labels.csv      [1 row per subject, running style cluster label]
+Outputs/Data/speed_models_km1.pkl    [LinearRegression models DF~speed, SF~speed at km 1.0]
 Outputs/Plots/elbow_plot.png
 Outputs/Plots/dual_axis_snapshot.png
 Outputs/Plots/dual_axis_arrows.png
@@ -121,7 +131,7 @@ Required for SF normalization: `SF_norm = SF * sqrt(l0/g)`. Priority: (1) `leg_l
 
 ### Synthetic Test Data
 
-`tests/generate_test_data.py` generates 30 subjects (P01–P30) across 5 van Oeveren groups (Stick/Bounce/Push/Hop/Sit), each with 19 km-markers and realistic fatigue trends. Overwrites both `dual_axis_dataset.csv` and `data/subjects.csv`. `leg_length_m` is intentionally left empty in subjects.csv so `estimate_leg_length()` is exercised.
+`tests/generate_test_data.py` generates 30 subjects (P01–P30) across 5 van Oeveren groups (Stick/Bounce/Push/Hop/Sit), each with 19 km-markers and realistic fatigue trends. Overwrites both `dual_axis_dataset.csv` and `data/subjects.csv`. `leg_length_m` is intentionally left empty so `estimate_leg_length()` is exercised. `speed_ms` is generated as N(3.47, 0.33) clipped to [2.78, 4.17] m/s (≈ 10–15 km/h) and merged into `dual_axis_dataset.csv`.
 
 ### Raw Data
 

@@ -126,15 +126,19 @@ def generate_subjects(rng: np.random.Generator) -> pd.DataFrame:
 
     body_height_m: N(1.75, 0.08), geclippt auf [1.55, 2.00]
     leg_length_m:  leer – damit estimate_leg_length() in der Pipeline greift
+    speed_ms:      N(3.47, 0.33), geclippt auf [2.78, 4.17] (= 10-15 km/h)
     """
     subjects = [f"P{i:02d}" for i in range(1, 31)]
     heights  = rng.normal(1.75, 0.08, size=30)
     heights  = np.clip(heights, 1.55, 2.00).round(3)
+    speeds   = rng.normal(3.47, 0.33, size=30)   # mu=12.5 km/h, sigma=1.2 km/h in m/s
+    speeds   = np.clip(speeds, 2.78, 4.17).round(3)
 
     return pd.DataFrame(dict(
         Subject       = subjects,
         leg_length_m  = np.nan,          # bewusst leer – Schaetzung via body_height_m
         body_height_m = heights,
+        speed_ms      = speeds,
         notes         = "synthetisch generiert",
     ))
 
@@ -158,7 +162,7 @@ def validate(df_dual: pd.DataFrame, df_subj: pd.DataFrame) -> None:
     assert df_dual["Subject"].nunique() == 30, \
         "Nicht 30 eindeutige Probanden"
 
-    assert set(["Subject", "leg_length_m", "body_height_m", "notes"]).issubset(df_subj.columns), \
+    assert set(["Subject", "leg_length_m", "body_height_m", "speed_ms", "notes"]).issubset(df_subj.columns), \
         "subjects: fehlende Spalten"
     assert len(df_subj) == 30, f"subjects: {len(df_subj)} Zeilen (erwartet 30)"
 
@@ -213,6 +217,11 @@ def main() -> None:
 
     print("Generiere subjects.csv ...")
     df_subj = generate_subjects(rng)
+
+    # ── Speed aus subjects in dual_axis mergen ───────────────────────────────
+    df_dual = df_dual.merge(
+        df_subj[["Subject", "speed_ms"]], on="Subject", how="left"
+    )
 
     # ── Speichern ────────────────────────────────────────────────────────────
     config.DATA_PROCESSED_DIR.mkdir(parents=True, exist_ok=True)

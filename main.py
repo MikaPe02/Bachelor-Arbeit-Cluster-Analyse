@@ -26,6 +26,7 @@ from fatigue.fatigue_metrics import build_fatigue_feature_table
 from fatigue.preprocessing import z_transform, sanity_check
 from fatigue.clustering_eval import run_clustering_comparison, run_final_clustering
 from fatigue.clustering_ui import show_metrics_summary, select_clustering
+from fatigue.speed_correction import compute_speed_residuals_km1, save_models
 from extension.viz_plots import elbow_plot, create_all_plots
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -58,7 +59,11 @@ def step1_load_data() -> pd.DataFrame:
 
 
 def step2_compute_fatigue_features(df: pd.DataFrame) -> pd.DataFrame:
-    """Schritt 2: Fatigue-Features pro Proband berechnen (Delta + Slope)."""
+    """Schritt 2: Fatigue-Features pro Proband berechnen (Delta + Slope).
+
+    Diese Features werden gespeichert und fuer die spaetere Ermüdungsanalyse
+    pro Cluster verwendet – aber NICHT als Clustering-Input.
+    """
     print("\n=== Schritt 2: Fatigue-Features berechnen ===")
 
     df_features = build_fatigue_feature_table(df)
@@ -68,6 +73,32 @@ def step2_compute_fatigue_features(df: pd.DataFrame) -> pd.DataFrame:
     print(df_features.to_string(index=False))
 
     return df_features
+
+
+def step3_speed_correction(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
+    """Schritt 3: Speed-bereinigte Residuen bei km 1.0 berechnen.
+
+    Clustering-Input: DF_residual und SF_residual (speed-bereinigt, km 1.0).
+    Abbruch wenn speed_ms nicht in der CSV vorhanden ist.
+    """
+    print("\n=== Schritt 3: Speed-Bereinigung (km 1.0) ===")
+
+    if "speed_ms" not in df.columns:
+        raise SystemExit(
+            "\nFEHLER: Spalte 'speed_ms' fehlt in dual_axis_dataset.csv.\n"
+            "  Loesung: speed_ms in data/subjects.csv eintragen und\n"
+            "           extract_to_csv.py erneut ausfuehren."
+        )
+
+    df_km1, models = compute_speed_residuals_km1(df)
+
+    config.OUTPUT_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    save_models(models, config.SPEED_MODELS_PKL)
+
+    print(f"  Clustering-Features: DF_residual, SF_residual")
+    print(f"  Probanden bei km 1.0: {len(df_km1)}")
+
+    return df_km1, models
 
 
 def step5_run_final_clustering(df_features_z: pd.DataFrame, selection: dict) -> pd.Series:
@@ -120,7 +151,7 @@ def main() -> None:
     # Schritt 1: Daten laden
     df = step1_load_data()
 
-    # Schritt 2: Fatigue-Features
+    # Schritt 2: Fatigue-Features (Delta + Slope) – nur fuer Ermüdungsanalyse, nicht Clustering
     df_features_raw = step2_compute_fatigue_features(df)
 
     n_subjects = len(df_features_raw)
@@ -133,31 +164,34 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # Schritt 3: Z-Transformation
-    df_features_z = z_transform(df_features_raw)
+    # Schritt 3: Speed-Bereinigung – Clustering-Input: DF_residual + SF_residual bei km 1.0
+    df_km1, _ = step3_speed_correction(df)
 
-    # Schritt 4: Clustering
-    df_results = run_clustering_comparison(df_features_z, config)
+    # Schritt 4: Z-Transformation der Clustering-Features
+    df_style_z = z_transform(df_km1[["Subject", "DF_residual", "SF_residual"]])
 
-    # Schritt 4b: Elbow-Plot
-    elbow_plot(df_results, df_features_z, config)
+    # Schritt 5: Clustering-Vergleich
+    df_results = run_clustering_comparison(df_style_z, config)
 
-    # Schritt 4c: Metriken-Zusammenfassung
+    # Schritt 5b: Elbow-Plot
+    elbow_plot(df_results, df_style_z, config)
+
+    # Schritt 5c: Metriken-Zusammenfassung
     show_metrics_summary(df_results)
 
-    # Schritt 4d: Konfiguration waehlen
+    # Schritt 5d: Konfiguration waehlen
     selection = select_clustering(df_results)
 
-    # Schritt 5: Finales Clustering
-    labels = step5_run_final_clustering(df_features_z, selection)
+    # Schritt 6: Finales Clustering
+    labels = step5_run_final_clustering(df_style_z, selection)
 
-    # Schritt 5b: Plots erstellen
-    create_all_plots(df, labels, df_results, config, selection, df_features_z)
+    # Schritt 6b: Plots erstellen
+    create_all_plots(df, labels, df_results, config, selection, df_style_z)
 
-    # Schritt 6: Speichern
+    # Schritt 7: Speichern
     step6_save_results(df_features_raw, df_results, labels)
 
-    # Schritt 7: Sanity-Check
+    # Schritt 8: Sanity-Check
     sanity_check(df)
 
     print("\n" + "=" * 60)

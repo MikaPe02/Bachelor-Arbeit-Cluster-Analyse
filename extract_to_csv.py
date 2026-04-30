@@ -47,7 +47,7 @@ LEG_LENGTH_FALLBACK = 1.0  # TODO: ersetzen sobald Daten vorliegen
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def load_subject_metadata(subjects_file: Path) -> dict:
+def load_subject_metadata(subjects_file: Path) -> tuple[dict, dict]:
     """
     Lädt Probanden-Metadaten aus subjects.csv.
 
@@ -55,16 +55,23 @@ def load_subject_metadata(subjects_file: Path) -> dict:
     1. leg_length_m direkt gemessen
     2. body_height_m vorhanden -> schaetzen via De Leva (1996)
     3. Beides fehlt -> Fallback-Platzhalter mit Warnung
+
+    Returns
+    -------
+    tuple: (leg_lengths, speeds)
+        leg_lengths : dict {subject_id: leg_length_m}
+        speeds      : dict {subject_id: speed_ms} – nur wenn Wert vorhanden
     """
     if not subjects_file.exists():
         print(f"WARNUNG: subjects.csv nicht gefunden: {subjects_file}")
         print("  Platzhalter-Beinlaenge wird fuer alle Probanden verwendet.")
-        return {}
+        return {}, {}
 
     # Leere Felder explizit als NaN einlesen
     df = pd.read_csv(subjects_file, na_values=["", " ", "NA", "nan"])
 
     leg_lengths = {}
+    speeds = {}
 
     for _, row in df.iterrows():
         subject = str(row["Subject"]).strip()
@@ -97,10 +104,14 @@ def load_subject_metadata(subjects_file: Path) -> dict:
                   f"-> Platzhalter {LEG_LENGTH_FALLBACK} m")
             leg_lengths[subject] = LEG_LENGTH_FALLBACK
 
-    return leg_lengths
+        # Speed (optional) – nur wenn Spalte vorhanden und Wert gültig
+        if is_valid(row.get("speed_ms")):
+            speeds[subject] = float(row["speed_ms"])
+
+    return leg_lengths, speeds
 
 
-def extract_all(data_folder: str, leg_lengths: dict) -> pd.DataFrame:
+def extract_all(data_folder: str, leg_lengths: dict, speeds: dict) -> pd.DataFrame:
     """
     Liest alle MAT-Dateien und berechnet DF + SF_norm pro Datei.
 
@@ -108,10 +119,11 @@ def extract_all(data_folder: str, leg_lengths: dict) -> pd.DataFrame:
     ----------
     data_folder : str – Pfad zum Ordner mit MAT-Dateien
     leg_lengths : dict – {subject_id: leg_length_m}
+    speeds      : dict – {subject_id: speed_ms}, kann leer sein
 
     Returns
     -------
-    pd.DataFrame mit Spalten: Subject, km, DF, SF_norm, leg_length_m
+    pd.DataFrame mit Spalten: Subject, km, DF, SF_norm, leg_length_m, speed_ms
     """
     files = find_data_files(data_folder)
     mat_files = [f for f in files if f.suffix.lower() == ".mat"]
@@ -145,13 +157,16 @@ def extract_all(data_folder: str, leg_lengths: dict) -> pd.DataFrame:
             df_val = compute_duty_factor(p["ContactTimes"], p["FlightTimes"])
             sf_norm = compute_sf_norm(p["ContactTimes"], p["FlightTimes"], leg_length)
 
-            rows.append(dict(
+            row_data = dict(
                 Subject      = subject,
                 km           = km,
                 DF           = round(df_val, 6),
                 SF_norm      = round(sf_norm, 6),
                 leg_length_m = leg_length,
-            ))
+            )
+            if subject in speeds:
+                row_data["speed_ms"] = speeds[subject]
+            rows.append(row_data)
 
             print(f"  OK {mat_path.name:<30} DF={df_val:.4f}  SF_norm={sf_norm:.4f}")
 
@@ -177,10 +192,11 @@ if __name__ == "__main__":
     print("EXTRAKTION: MAT nach CSV")
     print("=" * 50)
 
-    # Schritt 1: Beinlaengen laden
+    # Schritt 1: Beinlaengen und Speed laden
     print("\nLade Probanden-Metadaten...")
-    leg_lengths = load_subject_metadata(SUBJECTS_FILE)
+    leg_lengths, speeds = load_subject_metadata(SUBJECTS_FILE)
     print(f"Bekannte Probanden: {len(leg_lengths)}")
+    print(f"Probanden mit Speed: {len(speeds)}")
 
     # Schritt 2: Ordner mit MAT-Dateien auswaehlen
     root = tk.Tk()
@@ -196,7 +212,7 @@ if __name__ == "__main__":
     print(f"\nAusgewaehlter Ordner: {data_raw_folder}")
 
     # Schritt 3: Alle MAT-Dateien extrahieren
-    df = extract_all(data_raw_folder, leg_lengths)
+    df = extract_all(data_raw_folder, leg_lengths, speeds)
 
     if df.empty:
         raise SystemExit("Keine Daten extrahiert - Programm wird beendet.")

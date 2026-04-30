@@ -28,8 +28,9 @@ DATA_RAW_FOLDER = None
 DATA_PROCESSED_DIR  = PROJECT_ROOT / "data" / "processed"
 DUAL_AXIS_CSV       = DATA_PROCESSED_DIR / "dual_axis_dataset.csv"
 
-# Probanden-Metadaten (Beinlaenge / Koerpergroesse)
-# Spalten: Subject, leg_length_m, body_height_m, notes
+# Probanden-Metadaten
+# Spalten: Subject, leg_length_m, body_height_m, speed_ms, notes
+# speed_ms: konstante Laufgeschwindigkeit pro Proband (Laufband), in m/s
 SUBJECTS_CSV = PROJECT_ROOT / "data" / "subjects.csv"
 
 # Ausgabe-Ordner
@@ -84,6 +85,10 @@ RANDOM_STATE = 42
 CLUSTER_RESULTS_CSV     = OUTPUT_DATA_DIR / "cluster_results.csv"
 FATIGUE_FEATURES_CSV    = OUTPUT_DATA_DIR / "fatigue_features.csv"
 CLUSTER_LABELS_CSV      = OUTPUT_DATA_DIR / "cluster_labels.csv"
+
+# Speed-Korrektur: Regressionsmodelle (DF ~ speed_ms, SF_norm ~ speed_ms bei km 1.0)
+# Wird in Schritt 3 von main.py erzeugt; kann fuer spaetere Analysen nachgeladen werden
+SPEED_MODELS_PKL        = OUTPUT_DATA_DIR / "speed_models_km1.pkl"
 
 # Plot-Einstellungen
 PLOT_DPI    = 300   # Aufloesung fuer gespeicherte Plots
