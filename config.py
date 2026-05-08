@@ -29,8 +29,10 @@ DATA_PROCESSED_DIR  = PROJECT_ROOT / "data" / "processed"
 DUAL_AXIS_CSV       = DATA_PROCESSED_DIR / "dual_axis_dataset.csv"
 
 # Probanden-Metadaten
-# Spalten: Subject, leg_length_m, body_height_m, speed_ms, notes
+# Spalten: Subject, body_height_m, dominant_leg, leg_length_li_m, leg_length_re_m,
+#          leg_length_m (Mittelwert li+re), weight_kg, speed_ms
 # speed_ms: konstante Laufgeschwindigkeit pro Proband (Laufband), in m/s
+# Wird automatisch aus der Messprotokoll-XLSX befuellt (extract_to_csv.py Schritt 0)
 SUBJECTS_CSV = PROJECT_ROOT / "data" / "subjects.csv"
 
 # Ausgabe-Ordner
@@ -41,8 +43,7 @@ OUTPUT_DATA_DIR  = OUTPUT_DIR / "Data"
 
 # ── Beinlaenge ────────────────────────────────────────────────────────────────
 
-# Fallback falls weder leg_length_m noch body_height_m in subjects.csv stehen
-# TODO: ersetzen sobald echte Daten vorliegen
+# Fallback nur fuer synthetische Testdaten oder fehlende Eintraege
 LEG_LENGTH_FALLBACK_M = 1.0
 
 # Schaetzfaktor Beinlaenge aus Koerpergroesse (De Leva, 1996)

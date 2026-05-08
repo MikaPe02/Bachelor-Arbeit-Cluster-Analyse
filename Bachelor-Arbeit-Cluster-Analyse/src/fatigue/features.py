@@ -167,12 +167,6 @@ def compute_sf_norm(contact_times, flight_times, leg_length_m):
     den Vergleich zwischen Probanden unterschiedlicher Körpergröße.
     SF_norm ist dimensionslos und typischerweise im Bereich 0.55–0.95.
 
-    WICHTIG – BEINLÄNGE:
-    # TODO: leg_length_m ist aktuell ein Platzhalter (1.0 m).
-    #       Echte Beinlängen pro Proband einpflegen sobald Daten vorliegen.
-    #       Fallback: estimate_leg_length(body_height_m) verwenden.
-    #       Kontakt: Studienleiter nach Anthropometrie-Tabelle fragen.
-
     Parameters
     ----------
     contact_times : array-like
