@@ -15,6 +15,7 @@
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 # Projektpfad so setzen, dass die src-Bibliothek gefunden wird
@@ -32,7 +33,7 @@ from extension.viz_plots import elbow_plot, create_all_plots
 
 
 def step1_load_data() -> pd.DataFrame:
-    """Schritt 1: dual_axis_dataset.csv laden und Pflichtfelder pruefen."""
+    """Schritt 1: dual_axis_dataset.csv laden, speed_ms aus subjects.csv mergen."""
     print("\n=== Schritt 1: Daten laden ===")
 
     if not config.DUAL_AXIS_CSV.exists():
@@ -47,6 +48,23 @@ def step1_load_data() -> pd.DataFrame:
     missing = required_cols - set(df.columns)
     if missing:
         raise ValueError(f"Fehlende Spalten in CSV: {missing}")
+
+    # speed_ms aus subjects.csv mergen
+    if "speed_ms" not in df.columns:
+        if not config.SUBJECTS_CSV.exists():
+            raise FileNotFoundError(
+                f"subjects.csv nicht gefunden: {config.SUBJECTS_CSV}\n"
+                "Bitte zuerst extract_to_csv.py ausfuehren."
+            )
+        subjects = pd.read_csv(config.SUBJECTS_CSV, usecols=["Subject", "speed_ms"])
+        df = df.merge(subjects, on="Subject", how="left")
+        n_missing_speed = df["speed_ms"].isna().sum()
+        if n_missing_speed > 0:
+            missing_ids = df[df["speed_ms"].isna()]["Subject"].unique().tolist()
+            raise SystemExit(
+                f"\nFEHLER: speed_ms fehlt fuer {len(missing_ids)} Proband(en): {missing_ids}\n"
+                "  Loesung: speed_ms in data/subjects.csv eintragen."
+            )
 
     n_subjects = df["Subject"].nunique()
     n_rows = len(df)
@@ -75,30 +93,43 @@ def step2_compute_fatigue_features(df: pd.DataFrame) -> pd.DataFrame:
     return df_features
 
 
-def step3_speed_correction(df: pd.DataFrame) -> tuple[pd.DataFrame, dict]:
-    """Schritt 3: Speed-bereinigte Residuen bei km 1.0 berechnen.
+def step3_select_clustering_input(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Schritt 3: Clustering-Input waehlen – Residuen oder Rohdaten bei km 1.0.
 
-    Clustering-Input: DF_residual und SF_residual (speed-bereinigt, km 1.0).
-    Abbruch wenn speed_ms nicht in der CSV vorhanden ist.
+    Fragt interaktiv ob Speed-Bereinigung durchgefuehrt werden soll.
+    Gibt df_km1 zurueck sowie die Namen der Feature-Spalten fuer Schritt 4.
     """
-    print("\n=== Schritt 3: Speed-Bereinigung (km 1.0) ===")
+    print("\n=== Schritt 3: Clustering-Input waehlen ===")
+    print()
+    print("  Optionen:")
+    print("  [1] Residual-Bereinigung  – Clustering auf DF_residual + SF_residual")
+    print("      (empfohlen: Speed erklaert bis zu 56% der DF-Varianz)")
+    print("  [2] Rohdaten              – Clustering direkt auf DF + SF_norm bei km 1.0")
+    print("      (Vergleichsanalyse: zeigt Speed-Gruppen-Effekt)")
+    print()
 
-    if "speed_ms" not in df.columns:
-        raise SystemExit(
-            "\nFEHLER: Spalte 'speed_ms' fehlt in dual_axis_dataset.csv.\n"
-            "  Loesung: speed_ms in data/subjects.csv eintragen und\n"
-            "           extract_to_csv.py erneut ausfuehren."
-        )
+    while True:
+        choice = input("  Auswahl [1/2]: ").strip()
+        if choice in ("1", "2"):
+            break
+        print("  Bitte 1 oder 2 eingeben.")
 
-    df_km1, models = compute_speed_residuals_km1(df)
+    df_km1 = df[np.abs(df["km"] - 1.0) <= 1e-6].copy()
 
-    config.OUTPUT_DATA_DIR.mkdir(parents=True, exist_ok=True)
-    save_models(models, config.SPEED_MODELS_PKL)
+    if choice == "1":
+        print("\n  -> Residual-Bereinigung (speed_ms-Regression bei km 1.0)")
+        df_km1, models = compute_speed_residuals_km1(df)
+        config.OUTPUT_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        save_models(models, config.SPEED_MODELS_PKL)
+        feature_cols = ["DF_residual", "SF_residual"]
+    else:
+        print("\n  -> Rohdaten bei km 1.0 (DF + SF_norm, keine Speed-Bereinigung)")
+        feature_cols = ["DF", "SF_norm"]
 
-    print(f"  Clustering-Features: DF_residual, SF_residual")
+    print(f"  Clustering-Features: {feature_cols}")
     print(f"  Probanden bei km 1.0: {len(df_km1)}")
 
-    return df_km1, models
+    return df_km1, feature_cols
 
 
 def step5_run_final_clustering(df_features_z: pd.DataFrame, selection: dict) -> pd.Series:
@@ -164,11 +195,11 @@ def main() -> None:
         )
         sys.exit(1)
 
-    # Schritt 3: Speed-Bereinigung – Clustering-Input: DF_residual + SF_residual bei km 1.0
-    df_km1, _ = step3_speed_correction(df)
+    # Schritt 3: Clustering-Input waehlen (Residuen oder Rohdaten)
+    df_km1, feature_cols = step3_select_clustering_input(df)
 
     # Schritt 4: Z-Transformation der Clustering-Features
-    df_style_z = z_transform(df_km1[["Subject", "DF_residual", "SF_residual"]])
+    df_style_z = z_transform(df_km1[["Subject"] + feature_cols])
 
     # Schritt 5: Clustering-Vergleich
     df_results = run_clustering_comparison(df_style_z, config)
@@ -179,8 +210,8 @@ def main() -> None:
     # Schritt 5c: Metriken-Zusammenfassung
     show_metrics_summary(df_results)
 
-    # Schritt 5d: Konfiguration waehlen
-    selection = select_clustering(df_results)
+    # Schritt 5d: Konfiguration waehlen (zeigt Elbow + ggf. Dendrogramm vor k-Abfrage)
+    selection = select_clustering(df_results, df_style_z, config)
 
     # Schritt 6: Finales Clustering
     labels = step5_run_final_clustering(df_style_z, selection)

@@ -23,7 +23,39 @@ sys.path.append(str(Path(__file__).resolve().parents[3]))
 import config
 
 
-# ── Hilfsfunktion ─────────────────────────────────────────────────────────────
+# ── Hilfsfunktionen ───────────────────────────────────────────────────────────
+
+def _show_plot(path) -> None:
+    """Oeffnet einen gespeicherten Plot im Standard-Bildbetrachter."""
+    import subprocess, os
+    try:
+        os.startfile(str(path))
+    except AttributeError:
+        subprocess.run(["xdg-open", str(path)])
+
+
+def _show_dendrogram_preview(df_features_z: "pd.DataFrame", linkage_method: str) -> None:
+    """Zeigt Dendrogramm ohne Schnittlinie zur Orientierung."""
+    import matplotlib.pyplot as plt
+    from scipy.cluster.hierarchy import linkage, dendrogram
+
+    X        = df_features_z.drop(columns=["Subject"]).to_numpy(dtype=float)
+    subjects = df_features_z["Subject"].tolist()
+
+    Z = linkage(X, method=linkage_method)
+
+    fig, ax = plt.subplots(figsize=(10, 5))
+    ax.set_title(f"Dendrogramm ({linkage_method}) – Orientierung zur k-Wahl")
+    dendrogram(Z, labels=subjects, ax=ax, color_threshold=0,
+               above_threshold_color="#4477AA")
+    ax.set_ylabel("Distanz")
+    ax.tick_params(axis="x", labelsize=8, rotation=45)
+    plt.setp(ax.get_xticklabels(), ha="right")
+    ax.grid(False)
+    fig.tight_layout()
+    plt.show(block=True)
+    plt.close(fig)
+
 
 def _global_best_row(df_results: pd.DataFrame, verbose: bool = False) -> pd.Series:
     """Gibt die global beste Konfiguration zurueck.
@@ -119,7 +151,7 @@ def show_metrics_summary(df_results: pd.DataFrame) -> None:
     )
 
 
-def select_clustering(df_results: pd.DataFrame) -> dict:
+def select_clustering(df_results: pd.DataFrame, df_features_z: pd.DataFrame | None = None, cfg=None) -> dict:
     """Interaktives Menue zur Wahl der finalen Clustering-Konfiguration.
 
     Returns
@@ -205,6 +237,21 @@ def select_clustering(df_results: pd.DataFrame) -> dict:
         rec_k = int(group_rows.loc[group_rows["rank_mean"].idxmin(), "k"])
     else:
         rec_k = int(group_rows.loc[group_rows["silhouette"].idxmax(), "k"])
+
+    # ── Orientierungsplots vor der k-Auswahl anzeigen ─────────────────────────
+    if df_features_z is not None and cfg is not None:
+        import matplotlib.pyplot as plt
+        from extension.viz_plots import elbow_plot as _elbow_plot
+
+        # Elbow-Plot immer anzeigen (hilft bei k-Means und hierarchisch)
+        _elbow_plot(df_results, df_features_z, cfg)
+        _show_plot(cfg.OUTPUT_PLOTS_DIR / "elbow_plot.png")
+
+        # Dendrogramm ohne Schnittlinie anzeigen (nur bei hierarchisch)
+        if sel_method == "hierarchical":
+            _show_dendrogram_preview(df_features_z, sel_linkage)
+
+        print("\n  (Plots geschlossen - jetzt k waehlen)")
 
     # ── k waehlen ─────────────────────────────────────────────────────────────
     valid_ks = [int(k) for k in config.K_RANGE]

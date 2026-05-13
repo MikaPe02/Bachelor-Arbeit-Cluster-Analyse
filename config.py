@@ -21,18 +21,16 @@ from pathlib import Path
 # Wurzelverzeichnis des Projekts (dort wo config.py liegt)
 PROJECT_ROOT = Path(__file__).resolve().parent
 
-# Pfad zu den MAT-Rohdaten – wird per Ordnerauswahl in extract_to_csv.py gesetzt
-DATA_RAW_FOLDER = None
+# Pfad zu den MAT-Rohdaten (lokal, nicht in Git)
+# ANPASSEN: falls die Daten woanders liegen
+DATA_RAW_FOLDER = PROJECT_ROOT / "data" / "Data"
 
 # Verarbeitete Daten (werden von extract_to_csv.py erzeugt)
 DATA_PROCESSED_DIR  = PROJECT_ROOT / "data" / "processed"
 DUAL_AXIS_CSV       = DATA_PROCESSED_DIR / "dual_axis_dataset.csv"
 
-# Probanden-Metadaten
-# Spalten: Subject, body_height_m, dominant_leg, leg_length_li_m, leg_length_re_m,
-#          leg_length_m (Mittelwert li+re), weight_kg, speed_ms
-# speed_ms: konstante Laufgeschwindigkeit pro Proband (Laufband), in m/s
-# Wird automatisch aus der Messprotokoll-XLSX befuellt (extract_to_csv.py Schritt 0)
+# Probanden-Metadaten (Beinlaenge / Koerpergroesse)
+# Spalten: Subject, leg_length_m, body_height_m, notes
 SUBJECTS_CSV = PROJECT_ROOT / "data" / "subjects.csv"
 
 # Ausgabe-Ordner
@@ -43,7 +41,8 @@ OUTPUT_DATA_DIR  = OUTPUT_DIR / "Data"
 
 # ── Beinlaenge ────────────────────────────────────────────────────────────────
 
-# Fallback nur fuer synthetische Testdaten oder fehlende Eintraege
+# Fallback falls weder leg_length_m noch body_height_m in subjects.csv stehen
+# TODO: ersetzen sobald echte Daten vorliegen
 LEG_LENGTH_FALLBACK_M = 1.0
 
 # Schaetzfaktor Beinlaenge aus Koerpergroesse (De Leva, 1996)
@@ -59,13 +58,13 @@ MIN_SUBJECTS = 3
 
 # Zu testende Clusteranzahlen fuer k-Means und hierarchisches Clustering
 # Bereich anpassen je nach erwarteter Gruppenanzahl
-K_RANGE = range(2, 7)  # testet k = 2, 3, 4, 5, 6
+K_RANGE = range(2, 9)  # testet k = 2, 3, 4, 5, 6, 7, 8
 
 # Welche Methoden sollen verglichen werden?
 # True = aktiv, False = ueberspringen
 RUN_KMEANS        = True
 RUN_HIERARCHICAL  = True
-RUN_HDBSCAN       = True
+RUN_HDBSCAN       = True  # False bis hdbscan installiert ist
 
 # Linkage-Methoden fuer hierarchisches Clustering
 # Empfehlung fuer BA: ward + complete als Hauptmethoden
@@ -86,9 +85,6 @@ RANDOM_STATE = 42
 CLUSTER_RESULTS_CSV     = OUTPUT_DATA_DIR / "cluster_results.csv"
 FATIGUE_FEATURES_CSV    = OUTPUT_DATA_DIR / "fatigue_features.csv"
 CLUSTER_LABELS_CSV      = OUTPUT_DATA_DIR / "cluster_labels.csv"
-
-# Speed-Korrektur: Regressionsmodelle (DF ~ speed_ms, SF_norm ~ speed_ms bei km 1.0)
-# Wird in Schritt 3 von main.py erzeugt; kann fuer spaetere Analysen nachgeladen werden
 SPEED_MODELS_PKL        = OUTPUT_DATA_DIR / "speed_models_km1.pkl"
 
 # Plot-Einstellungen

@@ -70,7 +70,7 @@ _BORG_COLS = ["Borg_pre", "Borg_2km", "Borg_4km", "Borg_6km", "Borg_8km", "Borg_
 def extract_subjects_from_xlsx(
     xlsx_path: Path = XLSX_PROTOCOLS,
     output_path: Path = SUBJECTS_FILE,
-) -> pd.DataFrame:
+) -> tuple[pd.DataFrame, dict[str, str]]:
     """
     Liest Probanden-Metadaten aus der Messprotokoll-XLSX und schreibt
     sie in data/subjects.csv.
@@ -89,17 +89,19 @@ def extract_subjects_from_xlsx(
 
     Returns
     -------
-    pd.DataFrame mit Spalten:
+    df : pd.DataFrame mit Spalten:
         Subject, body_height_m, dominant_leg,
         leg_length_li_m, leg_length_re_m, leg_length_m,
         weight_kg, speed_ms
+    selected_raw_names : dict {bereinigteID -> originalerProbandName}
+        z.B. {"P76": "P76Menstruation"} — zeigt welcher Ordner/Lauf gewählt wurde
     """
     print(f"\nLese XLSX: {xlsx_path.name}")
     raw = pd.read_excel(xlsx_path)
 
     # --- Relevante Spalten auswählen -----------------------------------------
     keep = [
-        "Proband", "Groesse", "DominantesBein",
+        "Proband", "Geschlecht", "Groesse", "DominantesBein",
         "Beinlaenge_li", "Beinlaenge_re",
         "Gewicht_preRun", "Geschwindigkeit",
     ] + _BORG_COLS
@@ -123,6 +125,7 @@ def extract_subjects_from_xlsx(
     df["leg_length_m"] = df[["leg_length_li_m", "leg_length_re_m"]].mean(axis=1).round(4)
 
     df.rename(columns={
+        "Geschlecht":     "sex",
         "DominantesBein": "dominant_leg",
         "Gewicht_preRun": "weight_kg",
         "Geschwindigkeit": "speed_ms",
@@ -130,12 +133,15 @@ def extract_subjects_from_xlsx(
 
     # --- Duplikate auflösen ---------------------------------------------------
     result_rows: list[dict] = []
+    selected_raw_names: dict[str, str] = {}  # {bereinigteID -> gewählter Proband-Name}
     compare_cols = ["body_height_m", "dominant_leg",
                     "leg_length_li_m", "leg_length_re_m", "speed_ms"]
 
     for subject, group in df.groupby("Subject", sort=False):
         if len(group) == 1:
-            result_rows.append(_row_to_dict(group.iloc[0]))
+            chosen = group.iloc[0]
+            result_rows.append(_row_to_dict(chosen))
+            selected_raw_names[subject] = str(chosen["Proband"]).strip()
             continue
 
         # Zeilen mit unvollständigen Borg-Werten verwerfen
@@ -152,32 +158,30 @@ def extract_subjects_from_xlsx(
         group = complete
 
         if len(group) == 1:
-            result_rows.append(_row_to_dict(group.iloc[0]))
+            chosen = group.iloc[0]
+            result_rows.append(_row_to_dict(chosen))
+            selected_raw_names[subject] = str(chosen["Proband"]).strip()
             continue
 
         # Prüfe ob nicht-Gewicht-Felder identisch sind
         ref = group.iloc[0]
-        all_match = True
         for col in compare_cols:
             vals = group[col].dropna().unique()
             if len(vals) > 1:
                 print(f"  WARNUNG {subject}: Spalte '{col}' unterscheidet sich "
                       f"zwischen Einträgen {group['Proband'].tolist()} -> "
                       f"Werte: {vals.tolist()} - erster Eintrag wird behalten.")
-                all_match = False
 
         # Kleinstes Gewicht nehmen
         min_weight = group["weight_kg"].min()
-
         row = _row_to_dict(ref)
         row["weight_kg"] = min_weight
-        if not all_match:
-            pass  # Warnung wurde oben ausgegeben, trotzdem ersten Eintrag nehmen
         result_rows.append(row)
+        selected_raw_names[subject] = str(ref["Proband"]).strip()
 
     # --- Ausgabe-DataFrame zusammenbauen ------------------------------------
     out_cols = [
-        "Subject", "body_height_m", "dominant_leg",
+        "Subject", "sex", "body_height_m", "dominant_leg",
         "leg_length_li_m", "leg_length_re_m", "leg_length_m",
         "weight_kg", "speed_ms",
     ]
@@ -186,12 +190,20 @@ def extract_subjects_from_xlsx(
     output_path.parent.mkdir(parents=True, exist_ok=True)
     out.to_csv(output_path, index=False)
     print(f"  -> {len(out)} Probanden gespeichert in {output_path}")
-    return out
+
+    # Übersicht welcher Lauf pro Proband gewählt wurde
+    print("\n  Gewählter Lauf pro Proband:")
+    for clean_id, raw_name in sorted(selected_raw_names.items()):
+        if clean_id != raw_name:
+            print(f"    {clean_id} <- {raw_name}")
+
+    return out, selected_raw_names
 
 
 def _row_to_dict(row: pd.Series) -> dict:
     return {
         "Subject":         row["Subject"],
+        "sex":             row["sex"],
         "body_height_m":   row["body_height_m"],
         "dominant_leg":    row["dominant_leg"],
         "leg_length_li_m": row["leg_length_li_m"],
@@ -266,22 +278,49 @@ def load_subject_metadata(subjects_file: Path) -> tuple[dict, dict]:
     return leg_lengths, speeds
 
 
-def extract_all(data_folder: str, leg_lengths: dict, speeds: dict) -> pd.DataFrame:
+def extract_all(
+    data_folder: str | Path,
+    leg_lengths: dict,
+    speeds: dict,
+    selected_raw_names: dict[str, str] | None = None,
+) -> pd.DataFrame:
     """
-    Liest alle MAT-Dateien und berechnet DF + SF_norm pro Datei.
+    Liest MAT-Dateien und berechnet DF + SF_norm pro Datei.
+
+    Wenn selected_raw_names übergeben wird, werden pro Proband nur die
+    MAT-Dateien aus dem passenden Unterordner gelesen (z.B. 'P76Menstruation').
+    Ohne selected_raw_names werden alle MAT-Dateien im data_folder gelesen.
 
     Parameters
     ----------
-    data_folder : str - Pfad zum Ordner mit MAT-Dateien
-    leg_lengths : dict - {subject_id: leg_length_m}
-    speeds      : dict - {subject_id: speed_ms}, kann leer sein
+    data_folder        : Pfad zum Ordner mit Probanden-Unterordnern (oder MAT-Dateien)
+    leg_lengths        : {subject_id: leg_length_m}
+    speeds             : {subject_id: speed_ms}
+    selected_raw_names : {bereinigte_id -> ordnername} z.B. {"P76": "P76Menstruation"}
 
     Returns
     -------
     pd.DataFrame mit Spalten: Subject, km, DF, SF_norm, leg_length_m, speed_ms
     """
-    files = find_data_files(data_folder)
-    mat_files = [f for f in files if f.suffix.lower() == ".mat"]
+    data_folder = Path(data_folder)
+
+    # MAT-Dateien sammeln: entweder gezielt aus Unterordnern oder alle rekursiv
+    if selected_raw_names:
+        mat_files = []
+        for clean_id, raw_name in selected_raw_names.items():
+            subject_dir = data_folder / raw_name
+            if subject_dir.is_dir():
+                found = list(subject_dir.rglob("*.mat"))
+                mat_files.extend(found)
+            else:
+                # Kein eigener Unterordner -> direkt im data_folder suchen
+                found = list(data_folder.glob(f"{raw_name}_km*.mat"))
+                mat_files.extend(found)
+                if not found:
+                    print(f"  WARNUNG: Kein Ordner und keine Dateien für '{raw_name}' gefunden.")
+    else:
+        files = find_data_files(data_folder)
+        mat_files = [f for f in files if f.suffix.lower() == ".mat"]
 
     if not mat_files:
         raise SystemExit(f"Keine MAT-Dateien gefunden in: {data_folder}")
@@ -289,41 +328,48 @@ def extract_all(data_folder: str, leg_lengths: dict, speeds: dict) -> pd.DataFra
     print(f"\nGefundene MAT-Dateien: {len(mat_files)}")
     print("-" * 50)
 
+    # Umgekehrtes Mapping: ordnername -> bereinigte_id (für Umbenennung)
+    raw_to_clean: dict[str, str] = {}
+    if selected_raw_names:
+        raw_to_clean = {v: k for k, v in selected_raw_names.items()}
+
     rows = []
     errors = []
 
-    for mat_path in mat_files:
+    for mat_path in sorted(mat_files):
         try:
-            # Proband + km aus Dateiname
             info = parse_filename_info(mat_path)
-            subject = info["subject"]
+            raw_subject = info["subject"]   # z.B. "P76Menstruation" (aus Dateiname)
             km = info["km"]
+
+            # Bereinigten Subject-Namen bestimmen
+            # Zuerst über Ordner-Mapping, sonst direkt bereinigen
+            parent_name = mat_path.parent.name
+            if parent_name in raw_to_clean:
+                subject = raw_to_clean[parent_name]
+            else:
+                subject = _clean_subject_id(raw_subject)
 
             # Beinlänge bestimmen
             leg_length = leg_lengths.get(subject, LEG_LENGTH_FALLBACK)
             if subject not in leg_lengths:
-                print(f"  WARNUNG {mat_path.name}: Proband '{subject}' nicht in subjects.csv -> Platzhalter")
+                print(f"  WARNUNG {mat_path.name}: '{subject}' nicht in subjects.csv -> Platzhalter")
 
             # MAT laden und Parameter extrahieren
             mat = load_mat(mat_path)
             p = extract_dual_axis_parameters(mat)
 
-            # DF und SF_norm berechnen
             df_val = compute_duty_factor(p["ContactTimes"], p["FlightTimes"])
             sf_norm = compute_sf_norm(p["ContactTimes"], p["FlightTimes"], leg_length)
 
-            row_data = dict(
-                Subject      = subject,
-                km           = km,
-                DF           = round(df_val, 6),
-                SF_norm      = round(sf_norm, 6),
-                leg_length_m = leg_length,
-            )
-            if subject in speeds:
-                row_data["speed_ms"] = speeds[subject]
-            rows.append(row_data)
+            rows.append(dict(
+                Subject = subject,
+                km      = km,
+                DF      = round(df_val, 6),
+                SF_norm = round(sf_norm, 6),
+            ))
 
-            print(f"  OK {mat_path.name:<30} DF={df_val:.4f}  SF_norm={sf_norm:.4f}")
+            print(f"  OK {mat_path.name:<35} Subject={subject}  DF={df_val:.4f}  SF_norm={sf_norm:.4f}")
 
         except Exception as e:
             print(f"  FEHLER {mat_path.name}: {e}")
@@ -348,9 +394,11 @@ if __name__ == "__main__":
     print("=" * 50)
 
     # Schritt 0: subjects.csv aus XLSX aktualisieren
+    # Gibt auch selected_raw_names zurück: {bereinigte_id -> gewählter Ordnername}
+    selected_raw_names: dict[str, str] = {}
     if XLSX_PROTOCOLS.exists():
         print("\nSchritt 0: Probanden-Metadaten aus XLSX extrahieren...")
-        extract_subjects_from_xlsx(XLSX_PROTOCOLS, SUBJECTS_FILE)
+        _, selected_raw_names = extract_subjects_from_xlsx(XLSX_PROTOCOLS, SUBJECTS_FILE)
     else:
         print(f"\nSchritt 0: XLSX nicht gefunden ({XLSX_PROTOCOLS.name}) - subjects.csv wird nicht aktualisiert.")
 
@@ -360,21 +408,27 @@ if __name__ == "__main__":
     print(f"Bekannte Probanden: {len(leg_lengths)}")
     print(f"Probanden mit Speed: {len(speeds)}")
 
-    # Schritt 2: Ordner mit MAT-Dateien auswaehlen
-    root = tk.Tk()
-    root.withdraw()
-    root.attributes("-topmost", True)
-    data_raw_folder = filedialog.askdirectory(
-        title="Ordner mit MAT-Dateien auswaehlen",
-        parent=root,
-    )
-    root.destroy()
-    if not data_raw_folder:
-        raise SystemExit("Kein Ordner ausgewaehlt - Programm wird beendet.")
-    print(f"\nAusgewaehlter Ordner: {data_raw_folder}")
+    # Schritt 2: Daten-Ordner bestimmen
+    import config as _cfg
+    if _cfg.DATA_RAW_FOLDER and Path(_cfg.DATA_RAW_FOLDER).is_dir():
+        data_raw_folder = Path(_cfg.DATA_RAW_FOLDER)
+        print(f"\nDaten-Ordner (aus config.py): {data_raw_folder}")
+    else:
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        chosen = filedialog.askdirectory(
+            title="Ordner mit MAT-Dateien auswaehlen",
+            parent=root,
+        )
+        root.destroy()
+        if not chosen:
+            raise SystemExit("Kein Ordner ausgewaehlt - Programm wird beendet.")
+        data_raw_folder = Path(chosen)
+        print(f"\nAusgewaehlter Ordner: {data_raw_folder}")
 
-    # Schritt 3: Alle MAT-Dateien extrahieren
-    df = extract_all(data_raw_folder, leg_lengths, speeds)
+    # Schritt 3: MAT-Dateien extrahieren (nur gewählte Läufe pro Proband)
+    df = extract_all(data_raw_folder, leg_lengths, speeds, selected_raw_names or None)
 
     if df.empty:
         raise SystemExit("Keine Daten extrahiert - Programm wird beendet.")

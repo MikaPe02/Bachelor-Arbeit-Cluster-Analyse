@@ -162,15 +162,17 @@ def dual_axis_arrows(
     """
     plt.rcParams.update(_BASE_RCPARAMS)
 
+    km_end = float(df["km"].max())
+
     start = _snapshot_at(df, km=1.0).rename(
         columns={"DF": "DF_start", "SF_norm": "SF_start"}
     )
-    end   = _snapshot_at(df, km=9.5).rename(
+    end   = _snapshot_at(df, km=km_end).rename(
         columns={"DF": "DF_end", "SF_norm": "SF_end"}
     )
 
     if start.empty or end.empty:
-        raise ValueError("Keine Daten bei km=1.0 oder km=9.5 gefunden.")
+        raise ValueError(f"Keine Daten bei km=1.0 oder km={km_end} gefunden.")
 
     # Cluster-Spalte aus Start-Snapshot uebernehmen
     keep = ["Subject", "DF_start", "SF_start", cluster_col]
@@ -184,7 +186,7 @@ def dual_axis_arrows(
         color_map["Noise"] = "#AAAAAA"
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
-    ax.set_title("Erm\u00fcdungsverlauf im Dual-Axis Raum (km 1.0 \u2192 km 9.5)")
+    ax.set_title(f"Erm\u00fcdungsverlauf im Dual-Axis Raum (km 1.0 \u2192 km {km_end:.1f})")
     _set_axes(ax)
     _add_region_labels(ax)
 
