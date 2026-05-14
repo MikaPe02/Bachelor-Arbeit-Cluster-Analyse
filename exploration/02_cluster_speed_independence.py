@@ -5,7 +5,7 @@
 #
 # VORAUSSETZUNG:
 #   - Outputs/Data/cluster_labels.csv  (erzeugt von main.py)
-#   - data/subjects.csv                (speed_ms pro Proband)
+#   - Input/subjects.csv                (speed_ms pro Proband)
 
 import sys
 from pathlib import Path
@@ -19,10 +19,11 @@ from scipy import stats
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
 
-CLUSTER_LABELS_CSV = PROJECT_ROOT / "Outputs" / "Data" / "cluster_labels.csv"
-SUBJECTS_CSV       = PROJECT_ROOT / "data" / "subjects.csv"
-OUTPUT_PLOTS       = PROJECT_ROOT / "Outputs" / "Plots"
-OUTPUT_DATA        = PROJECT_ROOT / "Outputs" / "Data"
+CLUSTER_LABELS_CSV   = PROJECT_ROOT / "Outputs" / "Data" / "cluster_labels.csv"
+CLUSTER_RESULTS_CSV  = PROJECT_ROOT / "Outputs" / "Data" / "cluster_results.csv"
+SUBJECTS_CSV         = PROJECT_ROOT / "Input" / "subjects.csv"
+OUTPUT_PLOTS         = PROJECT_ROOT / "Outputs" / "Plots"
+OUTPUT_DATA          = PROJECT_ROOT / "Outputs" / "Data"
 
 
 def load_data() -> pd.DataFrame:
@@ -52,13 +53,38 @@ def load_data() -> pd.DataFrame:
     return df
 
 
+
+def _load_method_label() -> str:
+    """Liest das gewaelte Clusterverfahren aus cluster_results.csv."""
+    if not CLUSTER_RESULTS_CSV.exists():
+        return ""
+    try:
+        df_res = pd.read_csv(CLUSTER_RESULTS_CSV)
+        best = df_res[df_res["is_best"] == True]
+        if best.empty:
+            best = df_res
+        row = best.iloc[0]
+        method = str(row.get("method", ""))
+        if method == "kmeans":
+            return f"k-Means, k={int(row['k'])}"
+        if method == "hierarchical":
+            linkage = str(row.get("linkage", "")).capitalize()
+            return f"Hierarchisch ({linkage}), k={int(row['k'])}"
+        if method == "hdbscan":
+            mcs = row.get("min_cluster_size", "?")
+            return f"HDBSCAN, mcs={int(mcs)}"
+        return method
+    except Exception:
+        return ""
+
+
 def run_anova(df: pd.DataFrame) -> tuple[float, float]:
     groups = [grp["speed_kmh"].values for _, grp in df.groupby("cluster_label")]
     f_stat, p_val = stats.f_oneway(*groups)
     return float(f_stat), float(p_val)
 
 
-def make_plots(df: pd.DataFrame, f_stat: float, p_val: float) -> Path:
+def make_plots(df: pd.DataFrame, f_stat: float, p_val: float, method_label: str = "") -> Path:
     sns.set_style("whitegrid")
     cluster_ids = sorted(df["cluster_label"].unique())
     n_clusters  = len(cluster_ids)
@@ -76,8 +102,9 @@ def make_plots(df: pd.DataFrame, f_stat: float, p_val: float) -> Path:
         if p_val < 0.05
         else "Cluster sind Speed-unabhaengig"
     )
+    method_str = f" | Verfahren: {method_label}" if method_label else ""
     fig.suptitle(
-        f"Speed-Unabhaengigkeit der Cluster\n"
+        f"Speed-Unabhaengigkeit der Cluster{method_str}\n"
         f"ANOVA: F = {f_stat:.2f}, {sig}  ->  {entscheidung}",
         fontsize=12, fontweight="bold",
     )
@@ -169,7 +196,8 @@ def main():
         print("     Clustering spiegelt Laufstil, nicht Geschwindigkeit.")
     print("=" * 65)
 
-    plot_path = make_plots(df, f_stat, p_val)
+    method_label = _load_method_label()
+    plot_path = make_plots(df, f_stat, p_val, method_label)
     print(f"\n  Plot gespeichert: {plot_path.relative_to(PROJECT_ROOT)}")
 
 

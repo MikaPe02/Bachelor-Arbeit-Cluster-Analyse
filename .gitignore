@@ -23,10 +23,10 @@ Beispiel Daten/
 # ── Generierte Outputs (reproduzierbar via main.py) ───────────────────────────
 Outputs/Data/
 Outputs/Plots/
-data/processed/
+Input/processed/
 
 # ── Ausnahme: subjects.csv gehört ins Repository (manuelle Eingaben) ──────────
-!data/subjects.csv
+!Input/subjects.csv
 
 # ── Alte Explorationsskripte – Zwischenoutputs ────────────────────────────────
 exploration/*.csv

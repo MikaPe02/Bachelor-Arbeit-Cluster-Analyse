@@ -84,7 +84,7 @@ Bachelor-Arbeit-Cluster-Analyse/src/
   extension/
     viz_plots.py                 # Dual-Axis Visualisierungen + Elbow-Plot + Metriken-Tabelle
 
-data/
+Input/
   subjects.csv                   # Körpergröße / Beinlänge pro Proband
   processed/dual_axis_dataset.csv
 ```
@@ -106,7 +106,7 @@ data/
 ## Dual-Axis Framework
 
 SF_norm = SF × √(l₀/g), wobei l₀ die Beinlänge (Trochanter major → Boden) ist.
-Beinlänge wird aus `data/subjects.csv` gelesen. Falls nur Körpergröße bekannt:
+Beinlänge wird aus `Input/subjects.csv` gelesen. Falls nur Körpergröße bekannt:
 l₀ ≈ 0.53 × Körpergröße (De Leva, 1996).
 
 **Ermüdungsfeatures pro Proband:**

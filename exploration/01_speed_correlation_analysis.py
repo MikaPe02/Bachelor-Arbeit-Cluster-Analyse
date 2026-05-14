@@ -17,8 +17,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
 
 # ── Pfade ─────────────────────────────────────────────────────────────────────
-DUAL_AXIS_CSV = PROJECT_ROOT / "data" / "processed" / "dual_axis_dataset.csv"
-SUBJECTS_CSV  = PROJECT_ROOT / "data" / "subjects.csv"
+DUAL_AXIS_CSV = PROJECT_ROOT / "Input" / "processed" / "dual_axis_dataset.csv"
+SUBJECTS_CSV  = PROJECT_ROOT / "Input" / "subjects.csv"
 OUTPUT_PLOTS  = PROJECT_ROOT / "Outputs" / "Plots"
 OUTPUT_DATA   = PROJECT_ROOT / "Outputs" / "Data"
 

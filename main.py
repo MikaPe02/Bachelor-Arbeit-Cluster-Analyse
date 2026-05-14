@@ -9,7 +9,7 @@
 #   python main.py
 #
 # VORAUSSETZUNG:
-#   data/processed/dual_axis_dataset.csv muss existieren (erzeugt von extract_to_csv.py)
+#   Input/processed/dual_axis_dataset.csv muss existieren (erzeugt von extract_to_csv.py)
 
 # ── Imports ──────────────────────────────────────────────────────────────────
 import sys
@@ -29,6 +29,7 @@ from fatigue.clustering_eval import run_clustering_comparison, run_final_cluster
 from fatigue.clustering_ui import show_metrics_summary, select_clustering
 from fatigue.speed_correction import compute_speed_residuals_km1, save_models
 from extension.viz_plots import elbow_plot, create_all_plots
+from extension.descriptive import describe_clusters
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -63,7 +64,7 @@ def step1_load_data() -> pd.DataFrame:
             missing_ids = df[df["speed_ms"].isna()]["Subject"].unique().tolist()
             raise SystemExit(
                 f"\nFEHLER: speed_ms fehlt fuer {len(missing_ids)} Proband(en): {missing_ids}\n"
-                "  Loesung: speed_ms in data/subjects.csv eintragen."
+                "  Loesung: speed_ms in Input/subjects.csv eintragen."
             )
 
     n_subjects = df["Subject"].nunique()
@@ -221,6 +222,9 @@ def main() -> None:
 
     # Schritt 7: Speichern
     step6_save_results(df_features_raw, df_results, labels)
+
+    # Schritt 7b: Deskriptive Statistik pro Cluster
+    describe_clusters(df, labels, selection, config)
 
     # Schritt 8: Sanity-Check
     sanity_check(df)

@@ -26,17 +26,24 @@ Bachelor's thesis project analyzing running fatigue via biomechanical clustering
 All scripts are run from the project root (`C:\Users\Mika\Uni\BA`):
 
 ```bash
-# Generate synthetic test data (30 subjects, 5 groups)
-python tests/generate_test_data.py
-
 # Run full analysis pipeline (interactive: features → clustering → method selection → plots)
 python main.py
+
+# (Real data) Extract DF and SF_norm from MAT files (opens folder-picker dialog)
+# Also writes SF_hz_km1 into Input/subjects.csv
+python extract_to_csv.py
+
+# Deskriptive Statistik der Stichprobe (Schritt 0 vor main.py)
+python exploration/03_descriptive_stats.py
 
 # (Standalone) Regenerate plots without re-running the full pipeline
 python exploration/20_create_plots.py
 
-# (Real data) Extract DF and SF_norm from MAT files (opens folder-picker dialog)
-python extract_to_csv.py
+# Post-hoc validation: speed independence of clusters (ANOVA)
+python exploration/02_cluster_speed_independence.py
+
+# Speed correlation analysis (pre-analysis)
+python exploration/01_speed_correlation_analysis.py
 ```
 
 ## Architecture
@@ -45,17 +52,18 @@ python extract_to_csv.py
 
 Single entry point for the full analysis. All implementation logic lives in src modules — `main.py` contains only function calls. Eight steps:
 
-1. `step1_load_data()` — load `dual_axis_dataset.csv`, validate required columns (incl. `speed_ms`); aborts if `speed_ms` missing
+1. `step1_load_data()` — load `dual_axis_dataset.csv`, merge `speed_ms` from `Input/subjects.csv` if missing; aborts if `speed_ms` missing for any subject
 2. `step2_compute_fatigue_features()` — `build_fatigue_feature_table()`; computes Delta + Slope per subject; aborts with `sys.exit(1)` if `< config.MIN_SUBJECTS` subjects. **Not used as clustering input** — saved for fatigue analysis within clusters.
-3. `step3_speed_correction()` — `compute_speed_residuals_km1(df)`; linear regression DF ~ speed_ms and SF_norm ~ speed_ms at km 1.0; returns `df_km1` with `DF_residual`, `SF_residual`; saves models to `SPEED_MODELS_PKL`
-4. `z_transform(df_km1[["Subject","DF_residual","SF_residual"]])` — StandardScaler on 2 clustering features → `df_style_z`
+3. `step3_select_clustering_input()` — **interactive**: user chooses between (1) speed-corrected residuals (`DF_residual`, `SF_residual` via linear regression at km 1.0) or (2) raw values (`DF`, `SF_norm` at km 1.0). Returns `df_km1` and `feature_cols`. Models saved to `SPEED_MODELS_PKL` only when option 1 is chosen.
+4. `z_transform(df_km1[["Subject"] + feature_cols])` — StandardScaler on 2 clustering features → `df_style_z`
 5. `run_clustering_comparison(df_style_z, config)` — all methods vs. all k, rank aggregation
-5b. `elbow_plot(df_results, df_style_z, config)` — normalized WCSS % vs. k
+5b. `elbow_plot(df_results, df_style_z, config)` — normalized WCSS % vs. k; title shows chosen method
 5c. `show_metrics_summary(df_results)` — best config per method/linkage in terminal
-5d. `select_clustering(df_results)` — interactive menu: accept recommendation or choose manually
+5d. `select_clustering(df_results, df_style_z, config)` — interactive menu: accept recommendation or choose manually; shows elbow + dendrogram before k-selection
 6. `step5_run_final_clustering()` — runs chosen method/k via `run_final_clustering()`
-6b. `create_all_plots(df, labels, df_results, config, selection, df_style_z)` — all plots saved to `Outputs/Plots/`; includes `dendrogram_plot()` if `selection["method"] == "hierarchical"`
+6b. `create_all_plots(df, labels, df_results, config, selection, df_style_z)` — all plots saved to `Outputs/Plots/`; all plots show chosen method in title; includes `dendrogram_plot()` if `selection["method"] == "hierarchical"`
 7. `step6_save_results()` — saves `fatigue_features.csv`, `cluster_results.csv`, `cluster_labels.csv`
+7b. `describe_clusters(df, labels, selection, config)` — deskriptive Statistik pro Cluster im Terminal + CSV
 8. `sanity_check(df)` — DF and SF_norm range per subject
 
 ### Source Library: `Bachelor-Arbeit-Cluster-Analyse/src/`
@@ -68,47 +76,64 @@ sys.path.append(str(PROJECT_ROOT / "Bachelor-Arbeit-Cluster-Analyse" / "src"))
 
 **`fatigue/` package** — core pipeline:
 - `io.py` — MAT file loading. Filename is the only source for subject ID and km marker.
-- `features.py` — computes DF, SF, SF_norm. `StepFrequency` in MAT files is INT32_MAX (invalid); always recompute from ContactTimes/FlightTimes. Contains `estimate_leg_length(body_height_m)` using De Leva factor 0.53.
+- `features.py` — computes DF, SF [Hz], SF_norm. `StepFrequency` in MAT files is INT32_MAX (invalid); always recompute from ContactTimes/FlightTimes via `compute_step_frequency()`. Contains `estimate_leg_length(body_height_m)` using De Leva factor 0.53.
 - `fatigue_metrics.py` — builds per-subject features: `Delta` (last − first) and `Slope` (linear regression) for DF and SF_norm. Entry point: `build_fatigue_feature_table(df_dual_axis)`. Output columns: `DF_start`, `DF_end`, `Delta_DF`, `Slope_DF`, `SF_start`, `SF_end`, `Delta_SF`, `Slope_SF`. **Saved to CSV, not used as clustering input.**
 - `preprocessing.py` — `z_transform(df_features)` (StandardScaler on all non-Subject columns), `sanity_check(df)` (range check per subject).
 - `speed_correction.py` — speed-based residual correction. `compute_speed_residuals_km1(df_all)`: filters km==1.0, fits LinearRegression for DF ~ speed_ms and SF_norm ~ speed_ms, returns `df_km1` with `DF_residual`/`SF_residual` columns and a `models` dict. `save_models(models, path)` / `load_models(path)` via pickle. Aborts if `speed_ms` column missing.
-- `clustering_eval.py` — k-Means, hierarchical (ward/complete/average/single), HDBSCAN. Entry points: `run_clustering_comparison(df_style_z, cfg)`, `run_final_clustering(df_style_z, selection, random_state)`, `add_best_flag(df_eval)`. Best-k selection via rank aggregation over Silhouette, Davies-Bouldin, Calinski-Harabasz. **Input is always 2-feature style matrix (DF_residual, SF_residual), z-transformed.**
-- `clustering_ui.py` — interactive terminal menus. `show_metrics_summary(df_results)`: table of best configs, global best marked with `>`. `select_clustering(df_results)`: method + k selection with input validation, includes HDBSCAN option; returns dict with `method`, `linkage`, `k` (plus `min_cluster_size`/`min_samples` for HDBSCAN). Global best via cross-method re-ranking on absolute metric values; tiebreaker: highest Silhouette.
+- `clustering_eval.py` — k-Means, hierarchical (ward/complete/average/single), HDBSCAN. Entry points: `run_clustering_comparison(df_style_z, cfg)`, `run_final_clustering(df_style_z, selection, random_state)`, `add_best_flag(df_eval)`. Best-k selection via rank aggregation over Silhouette, Davies-Bouldin, Calinski-Harabasz. **Input is always 2-feature style matrix, z-transformed.**
+- `clustering_ui.py` — interactive terminal menus. `show_metrics_summary(df_results)`: table of best configs, global best marked with `>`. `select_clustering(df_results, df_style_z, config)`: method + k selection with input validation, includes HDBSCAN option; shows elbow plot and dendrogram before k-selection; returns dict with `method`, `linkage`, `k` (plus `min_cluster_size`/`min_samples` for HDBSCAN). Global best via cross-method re-ranking on absolute metric values; tiebreaker: highest Silhouette.
 
-**`extension/` package** — visualization:
-- `viz_plots.py` — all publication-ready plots. Shared constants: `XLIM=(0.45, 0.78)`, `YLIM=(0.65, 1.08)`, `_PALETTE` (Paul Tol), `DPI=300`. Functions: `dual_axis_snapshot()`, `dual_axis_arrows()`, `cluster_scatter()`, `metrics_table()` (booktabs-style; HDBSCAN shown as one row per min_cluster_size, Linkage column shows `mcs=X`, footnote for auto-k), `elbow_plot(df_results, df_features_z, cfg)`, `dendrogram_plot(df_features_z, linkage_method)` (grayscale, cut line, only called for hierarchical), `create_all_plots(df, labels, df_results, cfg, selection, df_features_z)`. Noise points (HDBSCAN label -1) shown in `#AAAAAA` with "Noise (HDBSCAN)" legend entry.
+**`extension/` package** — visualization + deskriptive Statistik:
+- `viz_plots.py` — all publication-ready plots. Shared constants: `XLIM=(0.45, 0.78)`, `YLIM=(0.65, 1.08)`, `_PALETTE` (Paul Tol), `DPI=300`. Helper: `_method_label(selection)` → short readable string of chosen method. Functions: `dual_axis_snapshot(df, selection, out_dir)`, `dual_axis_arrows(df, cluster_col, selection, out_dir)`, `cluster_scatter(df, cluster_col, selection, out_dir)` — all show chosen method in plot title. `metrics_table()` (booktabs-style; HDBSCAN shown as one row per min_cluster_size, Linkage column shows `mcs=X`, footnote for auto-k), `elbow_plot(df_results, df_features_z, cfg, selection)` (title: "k-Means Inertia | Gewähltes Verfahren: ..."), `dendrogram_plot(df_features_z, selection, cfg)` (grayscale, cut line, only called for hierarchical), `create_all_plots(df, labels, df_results, cfg, selection, df_features_z)`. Noise points (HDBSCAN label -1) shown in `#AAAAAA` with "Noise (HDBSCAN)" legend entry.
+- `descriptive.py` — `describe_clusters(df, labels, selection, cfg)`: deskriptive Statistik pro Cluster (DF, SF_norm, Speed, Körpergröße, Gewicht, Beinlänge, SF_hz_km1 falls vorhanden). Verfahrensname im Terminal-Titel. Speichert `Outputs/Data/descriptive_stats_clusters.csv`.
+
+### Exploration Scripts: `exploration/`
+
+- `01_speed_correlation_analysis.py` — pre-analysis: correlation between speed and DF/SF_norm; reads `Input/processed/dual_axis_dataset.csv` and `Input/subjects.csv`
+- `02_cluster_speed_independence.py` — post-hoc ANOVA: tests whether clusters differ in speed; reads `Outputs/Data/cluster_labels.csv` and `Outputs/Data/cluster_results.csv` (to display chosen method in plot title); saves `Outputs/Plots/cluster_speed_independence.png`
+- `03_descriptive_stats.py` — standalone deskriptive Statistik der Stichprobe (Block 1: subjects.csv — N, M/W, Körpergröße, Gewicht, Beinlänge, Speed, SF_hz_km1; Block 2: DF + SF_norm bei km 1.0); speichert `Outputs/Data/descriptive_stats_sample.csv`
+- `10_inspect_mat_structure.py` — inspect raw MAT file structure
+- `12_build_cluster_features.py` — standalone feature building
+- `14_compare_clustering_methods.py` — standalone clustering comparison
+- `16_pca_plot.py` — PCA visualization
+- `17_dual_axis_scatter.py` — standalone dual-axis scatter
+- `18_dual_axis_arrows_km1_5_to_9_5.py` — standalone arrow plot
+- `19_validate_step_frequency.py` — SF validation against MAT data
+- `20_create_plots.py` — regenerate all plots from saved CSVs without re-running pipeline
 
 ### Configuration: `config.py`
 
 Key settings:
-- `DATA_RAW_FOLDER = None` — folder is selected via dialog in `extract_to_csv.py` at runtime
-- `SUBJECTS_CSV` — `data/subjects.csv` with columns `Subject`, `leg_length_m`, `body_height_m`, `speed_ms`, `notes`
+- `DATA_RAW_FOLDER` — `Input/Data`; path to raw MAT files (local, not in git)
+- `DATA_PROCESSED_DIR` — `Input/processed`
+- `SUBJECTS_CSV` — `Input/subjects.csv` with columns `Subject`, `sex`, `body_height_m`, `dominant_leg`, `leg_length_li_m`, `leg_length_re_m`, `leg_length_m`, `weight_kg`, `speed_ms`, `SF_hz_km1` (last column added by `extract_to_csv.py`)
 - `MIN_SUBJECTS = 3` — minimum subjects required before clustering
 - `K_RANGE`, `RUN_KMEANS`, `RUN_HIERARCHICAL`, `RUN_HDBSCAN`, `HIERARCHICAL_LINKAGES`
 - `RANDOM_STATE = 42`
-- `SPEED_MODELS_PKL` — `Outputs/Data/speed_models_km1.pkl`; saved after speed correction in step 3
+- `SPEED_MODELS_PKL` — `Outputs/Data/speed_models_km1.pkl`; saved after speed correction in step 3 (only when residual option chosen)
 - Output paths: `FATIGUE_FEATURES_CSV`, `CLUSTER_RESULTS_CSV`, `CLUSTER_LABELS_CSV`, `OUTPUT_PLOTS_DIR`
 
 ### Data Flow
 
 ```
-tests/generate_test_data.py          (synthetic: 30 subjects, 5 van Oeveren groups, incl. speed_ms)
-  OR
 extract_to_csv.py                    (real MAT files → uses fatigue.io + fatigue.features;
-                                      merges speed_ms from data/subjects.csv)
+                                      merges speed_ms from Input/subjects.csv;
+                                      writes SF_hz_km1 back into Input/subjects.csv)
         |
         v
-data/processed/dual_axis_dataset.csv   [Subject, km, DF, SF_norm, speed_ms, ...]
-data/subjects.csv                      [Subject, leg_length_m, body_height_m, speed_ms, notes]
+Input/processed/dual_axis_dataset.csv   [Subject, km, DF, SF_norm, speed_ms, ...]
+Input/subjects.csv                      [Subject, leg_length_m, body_height_m, speed_ms, notes]
         |
         v
 main.py
   Step 2: fatigue_metrics  →  Delta/Slope per subject (saved only)
-  Step 3: speed_correction →  DF_residual, SF_residual at km 1.0
+  Step 3: user chooses     →  Residuen (DF_residual, SF_residual) ODER Rohdaten (DF, SF_norm)
   Step 4: z_transform      →  2-feature style matrix
-  Step 5: clustering       →  on DF_residual + SF_residual (running style)
+  Step 5: clustering       →  on chosen features at km 1.0
         |
         v
+Outputs/Data/descriptive_stats_sample.csv   [Stichprobe: MW/SD/Min/Max je Variable]
+Outputs/Data/descriptive_stats_clusters.csv [Pro Cluster: MW/SD/Min/Max je Variable]
 Outputs/Data/fatigue_features.csv    [1 row per subject, Delta/Slope — for fatigue analysis]
 Outputs/Data/cluster_results.csv     [1 row per method/k, Silhouette/DB/CH scores, is_best]
 Outputs/Data/cluster_labels.csv      [1 row per subject, running style cluster label]
@@ -118,7 +143,8 @@ Outputs/Plots/dual_axis_snapshot.png
 Outputs/Plots/dual_axis_arrows.png
 Outputs/Plots/cluster_scatter.png
 Outputs/Plots/metrics_table.png
-Outputs/Plots/dendrogram_plot.png         (only if hierarchical clustering selected)
+Outputs/Plots/dendrogram.png              (only if hierarchical clustering selected)
+Outputs/Plots/cluster_speed_independence.png  (only via 02_cluster_speed_independence.py)
 ```
 
 ### MAT File Structure
@@ -127,12 +153,8 @@ Files follow `{Subject}_km{KM_INT}_{KM_DEC}.mat` (e.g., `P61_km01_5.mat` = subje
 
 ### Leg Length
 
-Required for SF normalization: `SF_norm = SF * sqrt(l0/g)`. Priority: (1) `leg_length_m` from `data/subjects.csv`, (2) `estimate_leg_length(body_height_m)` with De Leva factor 0.53, (3) fallback 1.0 m with warning.
-
-### Synthetic Test Data
-
-`tests/generate_test_data.py` generates 30 subjects (P01–P30) across 5 van Oeveren groups (Stick/Bounce/Push/Hop/Sit), each with 19 km-markers and realistic fatigue trends. Overwrites both `dual_axis_dataset.csv` and `data/subjects.csv`. `leg_length_m` is intentionally left empty so `estimate_leg_length()` is exercised. `speed_ms` is generated as N(3.47, 0.33) clipped to [2.78, 4.17] m/s (≈ 10–15 km/h) and merged into `dual_axis_dataset.csv`.
+Required for SF normalization: `SF_norm = SF * sqrt(l0/g)`. Priority: (1) `leg_length_m` from `Input/subjects.csv`, (2) `estimate_leg_length(body_height_m)` with De Leva factor 0.53, (3) fallback 1.0 m with warning.
 
 ### Raw Data
 
-`.mat` and `.c3d` files are git-ignored. `data/processed/`, `Outputs/`, and `data/subjects.csv` are local only.
+`.mat` and `.c3d` files are git-ignored. `Input/processed/`, `Outputs/`, and `Input/subjects.csv` are local only.

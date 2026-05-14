@@ -1,8 +1,8 @@
 """
 Reorganisiert MAT-Dateien von einer flachen Struktur in Probanden-Ordner.
 
-IST:  data/raw/{ID}_km{N}_0.mat (alle in einem Ordner)
-SOLL: data/by_subject/{ID}/{ID}_km{N}_0.mat
+IST:  Input/raw/{ID}_km{N}_0.mat (alle in einem Ordner)
+SOLL: Input/by_subject/{ID}/{ID}_km{N}_0.mat
 
 ID-Extraktion: alles vor dem ersten "_km" im Dateinamen.
 """
@@ -16,8 +16,8 @@ from pathlib import Path
 
 def parse_args():
     p = argparse.ArgumentParser(description="MAT-Dateien nach Probanden-ID sortieren")
-    p.add_argument("--source-dir", default="data/Raw_Data", help="Quellverzeichnis (default: data/Raw_Data)")
-    p.add_argument("--target-dir", default="data/Data", help="Zielverzeichnis (default: data/Data)")
+    p.add_argument("--source-dir", default="data/Raw_Data", help="Quellverzeichnis (default: Input/Raw_Data)")
+    p.add_argument("--target-dir", default="data/Data", help="Zielverzeichnis (default: Input/Data)")
     p.add_argument("--mode", choices=["copy", "move"], default="copy", help="copy oder move (default: copy)")
     p.add_argument("--dry-run", action="store_true", help="Nur anzeigen, nichts ausführen")
     return p.parse_args()

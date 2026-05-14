@@ -95,11 +95,31 @@ def _set_axes(ax: plt.Axes) -> None:
     ax.grid(True, linewidth=0.4, alpha=0.6)
 
 
+
+# ── Hilfsfunktion Methodenbeschriftung ───────────────────────────────────────
+
+def _method_label(selection):
+    """Kurze lesbare Beschriftung des gewaehlten Clustering-Verfahrens."""
+    if selection is None:
+        return ""
+    method = selection.get("method", "")
+    if method == "kmeans":
+        return f"k-Means, k={selection.get('k', '?')}"
+    if method == "hierarchical":
+        linkage = selection.get("linkage", "").capitalize()
+        return f"Hierarchisch ({linkage}), k={selection.get('k', '?')}"
+    if method == "hdbscan":
+        mcs = selection.get("min_cluster_size", "?")
+        return f"HDBSCAN, mcs={mcs}"
+    return method
+
+
 # ── Plot 1 ────────────────────────────────────────────────────────────────────
 
 def dual_axis_snapshot(
     df: pd.DataFrame,
     *,
+    selection=None,
     out_dir: Optional[Path] = None,
 ) -> tuple[plt.Figure, plt.Axes]:
     """
@@ -120,7 +140,9 @@ def dual_axis_snapshot(
         raise ValueError("Keine Daten bei km=1.0 gefunden.")
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
-    ax.set_title("Dual-Axis Framework \u2013 Ausgangslaufstile bei km 1.0")
+    method_str = _method_label(selection)
+    suffix = f" ({method_str})" if method_str else ""
+    ax.set_title(f"Dual-Axis Framework \u2013 Ausgangslaufstile bei km 1.0{suffix}")
     _set_axes(ax)
     _add_region_labels(ax)
 
@@ -149,6 +171,7 @@ def dual_axis_arrows(
     df: pd.DataFrame,
     *,
     cluster_col: str = "true_running_style",
+    selection=None,
     out_dir: Optional[Path] = None,
 ) -> tuple[plt.Figure, plt.Axes]:
     """
@@ -186,7 +209,9 @@ def dual_axis_arrows(
         color_map["Noise"] = "#AAAAAA"
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
-    ax.set_title(f"Erm\u00fcdungsverlauf im Dual-Axis Raum (km 1.0 \u2192 km {km_end:.1f})")
+    method_str = _method_label(selection)
+    method_suffix = f" \u2013 {method_str}" if method_str else ""
+    ax.set_title(f"Erm\u00fcdungsverlauf im Dual-Axis Raum (km 1.0 \u2192 km {km_end:.1f}){method_suffix}")
     _set_axes(ax)
     _add_region_labels(ax)
 
@@ -233,6 +258,7 @@ def cluster_scatter(
     df: pd.DataFrame,
     *,
     cluster_col: str = "true_running_style",
+    selection=None,
     out_dir: Optional[Path] = None,
 ) -> tuple[plt.Figure, plt.Axes]:
     """
@@ -255,7 +281,9 @@ def cluster_scatter(
         color_map["Noise"] = "#AAAAAA"
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
-    ax.set_title("Clustering-Ergebnis im Dual-Axis Raum")
+    method_str = _method_label(selection)
+    suffix = f" ({method_str})" if method_str else ""
+    ax.set_title(f"Clustering-Ergebnis im Dual-Axis Raum{suffix}")
     _set_axes(ax)
     _add_region_labels(ax)
 
@@ -567,6 +595,7 @@ def elbow_plot(
     df_results: pd.DataFrame,
     df_features_z: pd.DataFrame,
     cfg,
+    selection=None,
 ) -> None:
     """
     Plot 5: Elbow-Plot – normierte Innerhalb-Cluster-Streuung gegen k.
@@ -615,7 +644,9 @@ def elbow_plot(
                label=f"Bestes k = {best_k}")
     ax.set_xlabel("Anzahl Cluster k")
     ax.set_ylabel("Innerhalb-Cluster-Streuung\n(% der Streuung bei k=1)")
-    ax.set_title("Elbow-Methode: Optimale Clusteranzahl (k-Means)")
+    chosen = _method_label(selection) if selection else ""
+    chosen_str = f" | Gew\u00e4hltes Verfahren: {chosen}" if chosen else ""
+    ax.set_title(f"Elbow-Methode: Innerhalb-Cluster-Streuung (k-Means Inertia){chosen_str}")
     ax.set_xticks(df_km["k"].tolist())
     ax.set_ylim(0, 105)
     ax.yaxis.set_major_formatter(mticker.PercentFormatter(decimals=0))
@@ -758,13 +789,13 @@ def create_all_plots(
     df_labeled = df.merge(df_labels, on="Subject", how="left")
 
     print("  Plot 1: dual_axis_snapshot ...")
-    dual_axis_snapshot(df_labeled, out_dir=cfg.OUTPUT_PLOTS_DIR)
+    dual_axis_snapshot(df_labeled, selection=selection, out_dir=cfg.OUTPUT_PLOTS_DIR)
 
     print("  Plot 2: dual_axis_arrows ...")
-    dual_axis_arrows(df_labeled, cluster_col="cluster_label", out_dir=cfg.OUTPUT_PLOTS_DIR)
+    dual_axis_arrows(df_labeled, cluster_col="cluster_label", selection=selection, out_dir=cfg.OUTPUT_PLOTS_DIR)
 
     print("  Plot 3: cluster_scatter ...")
-    cluster_scatter(df_labeled, cluster_col="cluster_label", out_dir=cfg.OUTPUT_PLOTS_DIR)
+    cluster_scatter(df_labeled, cluster_col="cluster_label", selection=selection, out_dir=cfg.OUTPUT_PLOTS_DIR)
 
     print("  Plot 4: metrics_table ...")
     metrics_table(df_results, out_dir=cfg.OUTPUT_PLOTS_DIR)

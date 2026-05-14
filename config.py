@@ -10,7 +10,7 @@
 #   - Alles andere bleibt unveraendert
 #
 # BEINLAENGE:
-#   Wird automatisch aus data/subjects.csv gelesen.
+#   Wird automatisch aus Input/subjects.csv gelesen.
 #   Prioritaet: leg_length_m (direkt) > body_height_m (Schaetzung) > Fallback
 #   Quelle Schaetzung: De Leva (1996), Faktor 0.53 x Koerpergroesse
 
@@ -23,15 +23,17 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 
 # Pfad zu den MAT-Rohdaten (lokal, nicht in Git)
 # ANPASSEN: falls die Daten woanders liegen
-DATA_RAW_FOLDER = PROJECT_ROOT / "data" / "Data"
+DATA_RAW_FOLDER = PROJECT_ROOT / "Input" / "Data"
 
 # Verarbeitete Daten (werden von extract_to_csv.py erzeugt)
-DATA_PROCESSED_DIR  = PROJECT_ROOT / "data" / "processed"
+DATA_PROCESSED_DIR  = PROJECT_ROOT / "Input" / "processed"
 DUAL_AXIS_CSV       = DATA_PROCESSED_DIR / "dual_axis_dataset.csv"
 
-# Probanden-Metadaten (Beinlaenge / Koerpergroesse)
-# Spalten: Subject, leg_length_m, body_height_m, notes
-SUBJECTS_CSV = PROJECT_ROOT / "data" / "subjects.csv"
+# Probanden-Metadaten (Beinlaenge / Koerpergroesse / Speed / SF)
+# Spalten: Subject, sex, body_height_m, dominant_leg,
+#          leg_length_li_m, leg_length_re_m, leg_length_m,
+#          weight_kg, speed_ms, SF_hz_km1 (nach extract_to_csv.py)
+SUBJECTS_CSV = PROJECT_ROOT / "Input" / "subjects.csv"
 
 # Ausgabe-Ordner
 OUTPUT_DIR       = PROJECT_ROOT / "Outputs"

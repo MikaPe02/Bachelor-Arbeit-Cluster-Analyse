@@ -3,18 +3,18 @@
 # ZWECK: Extrahiert DF und SF_norm aus allen MAT-Dateien und speichert
 #        das Ergebnis als zentrale CSV-Datei.
 #        Enthält außerdem extract_subjects_from_xlsx() zum Befüllen von
-#        data/subjects.csv aus der Messprotokoll-XLSX.
+#        Input/subjects.csv aus der Messprotokoll-XLSX.
 #
 # WANN AUSFÜHREN:
 #   - Einmalig zu Beginn des Projekts
 #   - Erneut wenn neue Probanden-Daten hinzukommen
 #
 # INPUT:  MAT-Dateien in DATA_RAW_FOLDER (lokal, nicht in Git)
-# OUTPUT: data/processed/dual_axis_dataset.csv
-#         data/subjects.csv  (via extract_subjects_from_xlsx)
+# OUTPUT: Input/processed/dual_axis_dataset.csv
+#         Input/subjects.csv  (via extract_subjects_from_xlsx)
 #
 # BEINLÄNGE:
-#   Werte kommen aus data/subjects.csv (leg_length_m = Mittelwert li+re).
+#   Werte kommen aus Input/subjects.csv (leg_length_m = Mittelwert li+re).
 #   Fallback: Schätzung via De Leva (1996): l0 = 0.53 × Größe.
 #   Falls beides fehlt: Platzhalter 1.0 m mit Warnung.
 
@@ -33,17 +33,17 @@ src_path = project_root / "Bachelor-Arbeit-Cluster-Analyse" / "src"
 sys.path.append(str(src_path))
 
 from fatigue.io import find_data_files, load_mat, extract_dual_axis_parameters, parse_filename_info
-from fatigue.features import compute_duty_factor, compute_sf_norm, estimate_leg_length
+from fatigue.features import compute_duty_factor, compute_sf_norm, compute_step_frequency, estimate_leg_length
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 # ── Konfiguration ─────────────────────────────────────────────────────────────
 # Output
-OUTPUT_FILE = project_root / "data" / "processed" / "dual_axis_dataset.csv"
+OUTPUT_FILE = project_root / "Input" / "processed" / "dual_axis_dataset.csv"
 
 # Probanden-Metadaten
-SUBJECTS_FILE   = project_root / "data" / "subjects.csv"
-XLSX_PROTOCOLS  = project_root / "data" / "Raw_Data" / "Uebersicht_Messprotokolle_2026_04_15.xlsx"
+SUBJECTS_FILE   = project_root / "Input" / "subjects.csv"
+XLSX_PROTOCOLS  = project_root / "Input" / "Raw_Data" / "Uebersicht_Messprotokolle_2026_04_15.xlsx"
 
 # Fallback falls keine Beinlänge bekannt
 LEG_LENGTH_FALLBACK = 1.0
@@ -73,7 +73,7 @@ def extract_subjects_from_xlsx(
 ) -> tuple[pd.DataFrame, dict[str, str]]:
     """
     Liest Probanden-Metadaten aus der Messprotokoll-XLSX und schreibt
-    sie in data/subjects.csv.
+    sie in Input/subjects.csv.
 
     Logik:
     - Subject-ID: Suffixe (Estrogen, Menstruation, ohneFatigue, bis5km …)
@@ -360,16 +360,18 @@ def extract_all(
             p = extract_dual_axis_parameters(mat)
 
             df_val = compute_duty_factor(p["ContactTimes"], p["FlightTimes"])
+            sf_hz  = compute_step_frequency(p["ContactTimes"], p["FlightTimes"])
             sf_norm = compute_sf_norm(p["ContactTimes"], p["FlightTimes"], leg_length)
 
             rows.append(dict(
                 Subject = subject,
                 km      = km,
                 DF      = round(df_val, 6),
+                SF_hz   = round(sf_hz, 6),
                 SF_norm = round(sf_norm, 6),
             ))
 
-            print(f"  OK {mat_path.name:<35} Subject={subject}  DF={df_val:.4f}  SF_norm={sf_norm:.4f}")
+            print(f"  OK {mat_path.name:<35} Subject={subject}  DF={df_val:.4f}  SF_hz={sf_hz:.4f}  SF_norm={sf_norm:.4f}")
 
         except Exception as e:
             print(f"  FEHLER {mat_path.name}: {e}")
@@ -435,6 +437,23 @@ if __name__ == "__main__":
 
     # Schritt 4: Sortieren nach Proband und km
     df = df.sort_values(["Subject", "km"]).reset_index(drop=True)
+
+    # Schritt 4b: SF_hz bei km 1.0 in subjects.csv eintragen
+    if SUBJECTS_FILE.exists():
+        km1_sf = (
+            df[abs(df["km"] - 1.0) <= 1e-6][["Subject", "SF_hz"]]
+            .rename(columns={"SF_hz": "SF_hz_km1"})
+        )
+        subjects_df = pd.read_csv(SUBJECTS_FILE)
+        # Alte SF_hz_km1-Spalte entfernen falls vorhanden, dann neu mergen
+        subjects_df = subjects_df.drop(columns=["SF_hz_km1"], errors="ignore")
+        subjects_df = subjects_df.merge(km1_sf, on="Subject", how="left")
+        subjects_df.to_csv(SUBJECTS_FILE, index=False)
+        n_sf = km1_sf["Subject"].nunique()
+        print(f"\nSF_hz_km1 in subjects.csv eingetragen: {n_sf} Proband(en)")
+
+    # SF_hz aus dual_axis_dataset.csv heraushalten (pro-km-Wert, nicht fuer subjects)
+    df = df.drop(columns=["SF_hz"])
 
     # Schritt 5: Speichern
     OUTPUT_FILE.parent.mkdir(parents=True, exist_ok=True)
