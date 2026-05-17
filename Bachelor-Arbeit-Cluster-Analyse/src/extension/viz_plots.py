@@ -26,11 +26,11 @@ import pandas as pd
 # Positionen der van Oeveren Regionen im Dual-Axis Raum
 # Quelle: van Oeveren et al. (2021)
 _REGION_LABELS: list[tuple[str, float, float]] = [
-    ("Stick",  0.71, 0.76),
-    ("Bounce", 0.63, 0.86),
-    ("Push",   0.55, 0.96),
-    ("Hop",    0.53, 1.00),
-    ("Sit",    0.69, 0.74),
+    ("Bounce", 0.53, 0.86),   # kleiner DF, mittlere SF_norm
+    ("Hop",    0.62, 0.97),   # mittlerer DF, hohe SF_norm
+    ("Sit",    0.62, 0.86),   # Mitte beides
+    ("Push",   0.62, 0.77),   # mittlerer DF, kleine SF_norm
+    ("Stick",  0.76, 0.86),   # grosser DF, mittlere SF_norm
 ]
 
 # Farb-Palette (farbenblinden-freundlich, Paul Tol)
@@ -50,7 +50,7 @@ _BASE_RCPARAMS = {
 
 FIGSIZE = (8.0, 6.5)
 DPI     = 300
-XLIM    = (0.45, 0.78)   # DF-Achse, einheitlich fuer alle drei Plots
+XLIM    = (0.45, 0.88)   # DF-Achse, einheitlich fuer alle drei Plots
 YLIM    = (0.65, 1.08)   # SF_norm-Achse, einheitlich fuer alle drei Plots
 
 
@@ -104,14 +104,38 @@ def _method_label(selection):
         return ""
     method = selection.get("method", "")
     if method == "kmeans":
-        return f"k-Means, k={selection.get('k', '?')}"
-    if method == "hierarchical":
+        label = f"k-Means, k={selection.get('k', '?')}"
+    elif method == "hierarchical":
         linkage = selection.get("linkage", "").capitalize()
-        return f"Hierarchisch ({linkage}), k={selection.get('k', '?')}"
-    if method == "hdbscan":
+        label = f"Hierarchisch ({linkage}), k={selection.get('k', '?')}"
+    elif method == "hdbscan":
         mcs = selection.get("min_cluster_size", "?")
-        return f"HDBSCAN, mcs={mcs}"
-    return method
+        label = f"HDBSCAN, mcs={mcs}"
+    else:
+        label = method
+    speed_str = "speedbereinigt" if selection.get("speed_corrected") else "Rohdaten"
+    return f"{label} | {speed_str}"
+
+
+
+def _file_suffix(selection):
+    """Kurzer Dateiname-Suffix aus dem gewaehlten Verfahren, z.B. '_kmeans_k3_speedber'."""
+    if selection is None:
+        return ""
+    method = selection.get("method", "")
+    if method == "kmeans":
+        base = f"_kmeans_k{selection.get('k', '?')}"
+    elif method == "hierarchical":
+        linkage = selection.get("linkage", "")
+        base = f"_hierarchisch_{linkage}_k{selection.get('k', '?')}"
+    elif method == "hdbscan":
+        mcs = selection.get("min_cluster_size", "?")
+        ms  = selection.get("min_samples", "auto")
+        base = f"_hdbscan_mcs{mcs}_ms{ms}"
+    else:
+        base = f"_{method}"
+    speed_str = "_speedber" if selection.get("speed_corrected") else "_roh"
+    return base + speed_str
 
 
 # ── Plot 1 ────────────────────────────────────────────────────────────────────
@@ -248,7 +272,7 @@ def dual_axis_arrows(
     ax.legend(handles=handles, title=cluster_col, loc="best", frameon=True)
 
     fig.tight_layout()
-    _save(fig, out_dir, "dual_axis_arrows.png")
+    _save(fig, out_dir, f"dual_axis_arrows{_file_suffix(selection)}.png")
     return fig, ax
 
 
@@ -306,7 +330,7 @@ def cluster_scatter(
     ax.legend(title=cluster_col, loc="best", frameon=True)
 
     fig.tight_layout()
-    _save(fig, out_dir, "cluster_scatter.png")
+    _save(fig, out_dir, f"cluster_scatter{_file_suffix(selection)}.png")
     return fig, ax
 
 
@@ -315,6 +339,7 @@ def cluster_scatter(
 def metrics_table(
     df_results: pd.DataFrame,
     *,
+    selection=None,
     out_dir: Optional[Path] = None,
 ) -> plt.Figure:
     """
@@ -584,7 +609,8 @@ def metrics_table(
         color="#222222",
     )
 
-    _save(fig, out_dir, "metrics_table.png")
+    speed_str = "_speedber" if (selection or {}).get("speed_corrected") else "_roh"
+    _save(fig, out_dir, f"metrics_table{speed_str}.png")
     plt.close(fig)
     return fig
 
@@ -655,7 +681,7 @@ def elbow_plot(
     fig.tight_layout()
 
     cfg.OUTPUT_PLOTS_DIR.mkdir(parents=True, exist_ok=True)
-    out = cfg.OUTPUT_PLOTS_DIR / "elbow_plot.png"
+    out = cfg.OUTPUT_PLOTS_DIR / f"elbow_plot{_file_suffix(selection)}.png"
     fig.savefig(out, dpi=DPI, bbox_inches="tight")
     plt.close(fig)
     print(f"  Elbow-Plot gespeichert -> {out}")
@@ -751,10 +777,60 @@ def dendrogram_plot(
     fig.tight_layout()
 
     cfg.OUTPUT_PLOTS_DIR.mkdir(parents=True, exist_ok=True)
-    out = cfg.OUTPUT_PLOTS_DIR / "dendrogram.png"
+    out = cfg.OUTPUT_PLOTS_DIR / f"dendrogram{_file_suffix(selection)}.png"
     fig.savefig(out, dpi=DPI, bbox_inches="tight")
     plt.close(fig)
     print(f"  Dendrogramm gespeichert -> {out}")
+
+
+# ── Plot 3b ───────────────────────────────────────────────────────────────────
+
+def cluster_scatter_residuals(
+    df_features_z: pd.DataFrame,
+    labels: "pd.Series",
+    selection: dict,
+    out_dir: Optional[Path] = None,
+) -> None:
+    """
+    Scatter im Residuen-Raum (z-transformierte DF_residual x SF_residual).
+    Nur sinnvoll bei Speed-Bereinigung.
+    """
+    plt.rcParams.update(_BASE_RCPARAMS)
+
+    df_labels = labels.reset_index()
+    df_labels.columns = ["Subject", "cluster_label"]
+    merged = df_features_z.merge(df_labels, on="Subject", how="left")
+
+    color_map = _build_color_map(merged["cluster_label"])
+
+    fig, ax = plt.subplots(figsize=FIGSIZE)
+    method_str = _method_label(selection)
+    ax.set_title(f"Clustering im Residuen-Raum\n({method_str})")
+    ax.set_xlabel("DF_residual (z-standardisiert)")
+    ax.set_ylabel("SF_residual (z-standardisiert)")
+    ax.grid(True, linewidth=0.4, alpha=0.6)
+
+    feat_cols = [c for c in df_features_z.columns if c != "Subject"]
+
+    for lab in sorted(color_map):
+        sub = merged[merged["cluster_label"] == lab]
+        c   = color_map[lab]
+        label_str = "Noise (HDBSCAN)" if lab == "Noise" else str(lab)
+        ax.scatter(sub[feat_cols[0]], sub[feat_cols[1]],
+                   color=c, s=60, alpha=0.85, zorder=3, label=label_str)
+        cx, cy = sub[feat_cols[0]].mean(), sub[feat_cols[1]].mean()
+        ax.scatter(cx, cy, marker="X", s=180, color=c,
+                   edgecolors="black", linewidths=0.8, zorder=5)
+
+    ax.legend(title="Cluster", loc="best", frameon=True)
+    fig.tight_layout()
+
+    suffix = _file_suffix(selection)
+    if out_dir is not None:
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+        fig.savefig(Path(out_dir) / f"cluster_scatter_residuen{suffix}.png",
+                    dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
 
 
 # ── Alle Plots auf einmal ─────────────────────────────────────────────────────
@@ -794,11 +870,15 @@ def create_all_plots(
     print("  Plot 2: dual_axis_arrows ...")
     dual_axis_arrows(df_labeled, cluster_col="cluster_label", selection=selection, out_dir=cfg.OUTPUT_PLOTS_DIR)
 
-    print("  Plot 3: cluster_scatter ...")
+    print("  Plot 3: cluster_scatter (Dual-Axis Rohdaten) ...")
     cluster_scatter(df_labeled, cluster_col="cluster_label", selection=selection, out_dir=cfg.OUTPUT_PLOTS_DIR)
 
+    if selection.get("speed_corrected"):
+        print("  Plot 3b: cluster_scatter (Residuen-Raum) ...")
+        cluster_scatter_residuals(df_features_z, labels, selection, cfg.OUTPUT_PLOTS_DIR)
+
     print("  Plot 4: metrics_table ...")
-    metrics_table(df_results, out_dir=cfg.OUTPUT_PLOTS_DIR)
+    metrics_table(df_results, selection=selection, out_dir=cfg.OUTPUT_PLOTS_DIR)
 
     if selection["method"] == "hierarchical":
         print("  Plot 6: dendrogram_plot ...")

@@ -59,7 +59,7 @@ Single entry point for the full analysis. All implementation logic lives in src 
 5. `run_clustering_comparison(df_style_z, config)` — all methods vs. all k, rank aggregation
 5b. `elbow_plot(df_results, df_style_z, config)` — normalized WCSS % vs. k; title shows chosen method
 5c. `show_metrics_summary(df_results)` — best config per method/linkage in terminal
-5d. `select_clustering(df_results, df_style_z, config)` — interactive menu: accept recommendation or choose manually; shows elbow + dendrogram before k-selection
+5d. `select_clustering(df_results, df_style_z, config)` — interactive menu: accept recommendation or choose manually; shows elbow + dendrogram before k-selection; afterwards `selection["speed_corrected"]` is set from `feature_cols`
 6. `step5_run_final_clustering()` — runs chosen method/k via `run_final_clustering()`
 6b. `create_all_plots(df, labels, df_results, config, selection, df_style_z)` — all plots saved to `Outputs/Plots/`; all plots show chosen method in title; includes `dendrogram_plot()` if `selection["method"] == "hierarchical"`
 7. `step6_save_results()` — saves `fatigue_features.csv`, `cluster_results.csv`, `cluster_labels.csv`
@@ -84,7 +84,7 @@ sys.path.append(str(PROJECT_ROOT / "Bachelor-Arbeit-Cluster-Analyse" / "src"))
 - `clustering_ui.py` — interactive terminal menus. `show_metrics_summary(df_results)`: table of best configs, global best marked with `>`. `select_clustering(df_results, df_style_z, config)`: method + k selection with input validation, includes HDBSCAN option; shows elbow plot and dendrogram before k-selection; returns dict with `method`, `linkage`, `k` (plus `min_cluster_size`/`min_samples` for HDBSCAN). Global best via cross-method re-ranking on absolute metric values; tiebreaker: highest Silhouette.
 
 **`extension/` package** — visualization + deskriptive Statistik:
-- `viz_plots.py` — all publication-ready plots. Shared constants: `XLIM=(0.45, 0.78)`, `YLIM=(0.65, 1.08)`, `_PALETTE` (Paul Tol), `DPI=300`. Helper: `_method_label(selection)` → short readable string of chosen method. Functions: `dual_axis_snapshot(df, selection, out_dir)`, `dual_axis_arrows(df, cluster_col, selection, out_dir)`, `cluster_scatter(df, cluster_col, selection, out_dir)` — all show chosen method in plot title. `metrics_table()` (booktabs-style; HDBSCAN shown as one row per min_cluster_size, Linkage column shows `mcs=X`, footnote for auto-k), `elbow_plot(df_results, df_features_z, cfg, selection)` (title: "k-Means Inertia | Gewähltes Verfahren: ..."), `dendrogram_plot(df_features_z, selection, cfg)` (grayscale, cut line, only called for hierarchical), `create_all_plots(df, labels, df_results, cfg, selection, df_features_z)`. Noise points (HDBSCAN label -1) shown in `#AAAAAA` with "Noise (HDBSCAN)" legend entry.
+- `viz_plots.py` — all publication-ready plots. Shared constants: `XLIM=(0.45, 0.88)`, `YLIM=(0.65, 1.08)`, `_PALETTE` (Paul Tol), `DPI=300`. Helpers: `_method_label(selection)` → readable method string incl. speed_corrected flag; `_file_suffix(selection)` → filename suffix e.g. `_hierarchisch_ward_k3_speedber`. Van Oeveren region labels positioned per conceptual model: Bounce (small DF, mid SF_norm), Hop (mid DF, high SF_norm), Sit (center), Push (mid DF, low SF_norm), Stick (large DF, mid SF_norm). Functions: `dual_axis_snapshot(df, selection, out_dir)` — fixed filename, no method suffix; `dual_axis_arrows(df, cluster_col, selection, out_dir)`; `cluster_scatter(df, cluster_col, selection, out_dir)` — always shows original DF/SF_norm values regardless of speed correction; `cluster_scatter_residuals(df_features_z, labels, selection, out_dir)` — only generated when speed_corrected=True, shows clustering space; `metrics_table(df_results, selection, out_dir)` — filename contains only speed flag; `elbow_plot(df_results, df_features_z, cfg, selection)`; `dendrogram_plot(df_features_z, selection, cfg)` (only for hierarchical); `create_all_plots(df, labels, df_results, cfg, selection, df_features_z)`. All plot titles and filenames include chosen method and speed_corrected flag. Noise points (HDBSCAN label -1) shown in `#AAAAAA`.
 - `descriptive.py` — `describe_clusters(df, labels, selection, cfg)`: deskriptive Statistik pro Cluster (DF, SF_norm, Speed, Körpergröße, Gewicht, Beinlänge, SF_hz_km1 falls vorhanden). Verfahrensname im Terminal-Titel. Speichert `Outputs/Data/descriptive_stats_clusters.csv`.
 
 ### Exploration Scripts: `exploration/`
@@ -138,12 +138,13 @@ Outputs/Data/fatigue_features.csv    [1 row per subject, Delta/Slope — for fat
 Outputs/Data/cluster_results.csv     [1 row per method/k, Silhouette/DB/CH scores, is_best]
 Outputs/Data/cluster_labels.csv      [1 row per subject, running style cluster label]
 Outputs/Data/speed_models_km1.pkl    [LinearRegression models DF~speed, SF~speed at km 1.0]
-Outputs/Plots/elbow_plot.png
-Outputs/Plots/dual_axis_snapshot.png
-Outputs/Plots/dual_axis_arrows.png
-Outputs/Plots/cluster_scatter.png
-Outputs/Plots/metrics_table.png
-Outputs/Plots/dendrogram.png              (only if hierarchical clustering selected)
+Outputs/Plots/elbow_plot_{method}_{speedflag}.png
+Outputs/Plots/dual_axis_snapshot.png                      (fixed name, no method suffix)
+Outputs/Plots/dual_axis_arrows_{method}_{speedflag}.png
+Outputs/Plots/cluster_scatter_{method}_{speedflag}.png
+Outputs/Plots/metrics_table_{speedflag}.png               (only speed flag, no method)
+Outputs/Plots/dendrogram_{method}_{speedflag}.png         (only if hierarchical)
+Outputs/Plots/cluster_scatter_residuen_{method}_{speedflag}.png  (only if speed_corrected)
 Outputs/Plots/cluster_speed_independence.png  (only via 02_cluster_speed_independence.py)
 ```
 

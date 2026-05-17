@@ -135,13 +135,14 @@ def describe_clusters(
         rows = [(lbl, _stats_row(s)) for lbl, s in vars_]
         _print_table(f"  Cluster {cid}  (n = {n}):", rows)
 
+        # Breites Format: eine Zeile pro Cluster, Spalten = Variable_Kennwert
+        row_wide: dict = {"Verfahren": method_lbl, "Cluster": str(cid), "N": n}
         for lbl, stats in rows:
-            all_records.append({
-                "Verfahren": method_lbl,
-                "Cluster":   str(cid),
-                "Variable":  lbl,
-                **stats,
-            })
+            # Spaltenprefix: Sonderzeichen entfernen fuer saubere CSV-Header
+            prefix = lbl.replace(" ", "_").replace("[", "").replace("]", "").replace("/", "")
+            for kennwert in ("MW", "SD", "Min", "Max"):
+                row_wide[f"{prefix}_{kennwert}"] = stats[kennwert]
+        all_records.append(row_wide)
 
     # Speichern
     cfg.OUTPUT_DATA_DIR.mkdir(parents=True, exist_ok=True)

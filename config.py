@@ -74,8 +74,8 @@ RUN_HDBSCAN       = True  # False bis hdbscan installiert ist
 HIERARCHICAL_LINKAGES = ["ward", "complete", "average", "single"]
 
 # HDBSCAN Parameter-Grid (nur relevant wenn RUN_HDBSCAN = True)
-HDBSCAN_MIN_CLUSTER_SIZES = [3, 4, 5]
-HDBSCAN_MIN_SAMPLES       = [None, 2, 3]
+HDBSCAN_MIN_CLUSTER_SIZES = [2, 3, 4, 5]
+HDBSCAN_MIN_SAMPLES       = [1, 2, 3]
 
 # Reproduzierbarkeit: fixer Zufallsseed fuer k-Means
 RANDOM_STATE = 42

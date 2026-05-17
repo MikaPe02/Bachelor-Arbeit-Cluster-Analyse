@@ -213,6 +213,7 @@ def main() -> None:
 
     # Schritt 5d: Konfiguration waehlen (zeigt Elbow + ggf. Dendrogramm vor k-Abfrage)
     selection = select_clustering(df_results, df_style_z, config)
+    selection["speed_corrected"] = ("DF_residual" in feature_cols)
 
     # Schritt 6: Finales Clustering
     labels = step5_run_final_clustering(df_style_z, selection)

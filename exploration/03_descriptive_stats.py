@@ -81,6 +81,15 @@ def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
     subjects = pd.read_csv(SUBJECTS_CSV)
     dual     = pd.read_csv(DUAL_AXIS_CSV)
     km1      = dual[np.abs(dual["km"] - 1.0) <= 1e-6].copy()
+
+    # Nur Probanden mit tatsaechlichen km-1.0-Daten — gleiche Stichprobe wie Clustering
+    subjects_with_data = km1["Subject"].unique()
+    n_dropped = len(subjects) - len(subjects[subjects["Subject"].isin(subjects_with_data)])
+    if n_dropped > 0:
+        dropped = subjects[~subjects["Subject"].isin(subjects_with_data)]["Subject"].tolist()
+        print(f"  HINWEIS: {n_dropped} Proband(en) ohne km-1.0-Daten werden ausgeschlossen: {dropped}")
+    subjects = subjects[subjects["Subject"].isin(subjects_with_data)].reset_index(drop=True)
+
     return subjects, km1
 
 
