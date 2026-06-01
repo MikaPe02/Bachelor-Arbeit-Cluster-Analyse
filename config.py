@@ -84,10 +84,12 @@ RANDOM_STATE = 42
 # ── Ausgabe ───────────────────────────────────────────────────────────────────
 
 # Dateinamen fuer Ergebnisse
-CLUSTER_RESULTS_CSV     = OUTPUT_DATA_DIR / "cluster_results.csv"
-FATIGUE_FEATURES_CSV    = OUTPUT_DATA_DIR / "fatigue_features.csv"
-CLUSTER_LABELS_CSV      = OUTPUT_DATA_DIR / "cluster_labels.csv"
-SPEED_MODELS_PKL        = OUTPUT_DATA_DIR / "speed_models_km1.pkl"
+CLUSTER_RESULTS_CSV           = OUTPUT_DATA_DIR / "cluster_results.csv"
+FATIGUE_FEATURES_CSV          = OUTPUT_DATA_DIR / "fatigue_features.csv"
+CLUSTER_LABELS_CSV            = OUTPUT_DATA_DIR / "cluster_labels.csv"
+SPEED_MODELS_PKL              = OUTPUT_DATA_DIR / "speed_models_km1.pkl"
+FATIGUE_CLUSTER_RESULTS_CSV   = OUTPUT_DATA_DIR / "fatigue_cluster_results.csv"
+FATIGUE_CLUSTER_LABELS_CSV    = OUTPUT_DATA_DIR / "fatigue_cluster_labels.csv"
 
 # Plot-Einstellungen
 PLOT_DPI    = 300   # Aufloesung fuer gespeicherte Plots

@@ -28,8 +28,8 @@ from fatigue.preprocessing import z_transform, sanity_check
 from fatigue.clustering_eval import run_clustering_comparison, run_final_clustering
 from fatigue.clustering_ui import show_metrics_summary, select_clustering
 from fatigue.speed_correction import compute_speed_residuals_km1, save_models
-from extension.viz_plots import elbow_plot, create_all_plots
-from extension.descriptive import describe_clusters
+from extension.viz_plots import elbow_plot, create_all_plots, fatigue_cluster_scatter
+from extension.descriptive import describe_clusters, compare_style_and_fatigue_clusters
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -175,6 +175,72 @@ def step6_save_results(
     print(f"  Cluster-Labels -> {config.CLUSTER_LABELS_CSV}")
 
 
+def step_fatigue_clustering(
+    df_features_raw: pd.DataFrame,
+    style_labels: pd.Series,
+    style_selection: dict,
+) -> None:
+    """Optionaler Schritt: Clustering auf Fatigue-Features (Delta + Slope)."""
+    print("\n=== Fatigue-Clustering ===")
+    print("  Clustering auf Delta_DF, Slope_DF, Delta_SF, Slope_SF")
+    print()
+
+    while True:
+        choice = input("  Fatigue-Clustering durchfuehren? [j/n]: ").strip().lower()
+        if choice in ("j", "n"):
+            break
+        print("  Bitte j oder n eingeben.")
+
+    if choice == "n":
+        print("  -> Fatigue-Clustering uebersprungen.")
+        return
+
+    fatigue_input_cols = ["Delta_DF", "Slope_DF", "Delta_SF", "Slope_SF"]
+    available = [c for c in fatigue_input_cols if c in df_features_raw.columns]
+    if len(available) < 2:
+        print("  FEHLER: Nicht genuegend Fatigue-Features vorhanden.")
+        return
+
+    df_f = df_features_raw[["Subject"] + available].dropna()
+    print(f"  Probanden mit vollstaendigen Fatigue-Features: {len(df_f)}")
+
+    df_f_z = z_transform(df_f)
+
+    df_f_results = run_clustering_comparison(df_f_z, config)
+
+    elbow_plot(df_f_results, df_f_z, config)
+
+    show_metrics_summary(df_f_results)
+
+    f_selection = select_clustering(df_f_results, df_f_z, config)
+    f_selection["speed_corrected"] = False
+
+    f_labels = run_final_clustering(df_f_z, f_selection, random_state=config.RANDOM_STATE)
+
+    counts = f_labels.value_counts().sort_index()
+    print("  Fatigue-Cluster-Groessen:")
+    for name, n in counts.items():
+        print(f"    {name}: {n} Probanden")
+
+    # Speichern
+    config.OUTPUT_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    df_f_results.to_csv(config.FATIGUE_CLUSTER_RESULTS_CSV, index=False)
+    print(f"  -> Fatigue-Cluster-Ergebnisse: {config.FATIGUE_CLUSTER_RESULTS_CSV}")
+
+    df_f_labels = f_labels.reset_index()
+    df_f_labels.columns = ["Subject", "fatigue_cluster_label"]
+    df_f_labels.to_csv(config.FATIGUE_CLUSTER_LABELS_CSV, index=False)
+    print(f"  -> Fatigue-Cluster-Labels: {config.FATIGUE_CLUSTER_LABELS_CSV}")
+
+    # Scatter-Plot
+    fatigue_cluster_scatter(df_f_z, f_labels, f_selection, config.OUTPUT_PLOTS_DIR)
+
+    # Kreuztabelle: Laufstil-Cluster vs. Fatigue-Cluster
+    compare_style_and_fatigue_clusters(
+        style_labels, f_labels, style_selection, f_selection, config
+    )
+
+
 def main() -> None:
     print("=" * 60)
     print("Laufmuedigkeits-Analyse: Dual-Axis Clustering Pipeline")
@@ -229,6 +295,9 @@ def main() -> None:
 
     # Schritt 8: Sanity-Check
     sanity_check(df)
+
+    # Schritt 9: Optionales Fatigue-Clustering
+    step_fatigue_clustering(df_features_raw, labels, selection)
 
     print("\n" + "=" * 60)
     print("Pipeline abgeschlossen.")

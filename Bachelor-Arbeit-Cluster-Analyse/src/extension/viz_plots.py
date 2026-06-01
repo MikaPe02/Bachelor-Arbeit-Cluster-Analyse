@@ -833,6 +833,55 @@ def cluster_scatter_residuals(
     plt.close(fig)
 
 
+def fatigue_cluster_scatter(
+    df_f_z: "pd.DataFrame",
+    labels: "pd.Series",
+    selection: dict,
+    out_dir: "Path",
+) -> None:
+    """
+    Scatter-Plot der Fatigue-Cluster im z-transformierten Feature-Raum.
+    X-Achse: Delta_DF_z oder Slope_DF_z, Y-Achse: Delta_SF_z oder Slope_SF_z.
+    """
+    import pandas as pd
+
+    suffix   = _file_suffix(selection)
+    method   = _method_label(selection)
+
+    df_plot = df_f_z.set_index("Subject").copy()
+    df_plot["cluster"] = labels.astype(str)
+
+    # Achsen: erste zwei Feature-Spalten (nach Subject)
+    feature_cols = [c for c in df_f_z.columns if c != "Subject"]
+    if len(feature_cols) < 2:
+        return
+    xcol, ycol = feature_cols[0], feature_cols[1]
+
+    cluster_ids = sorted(df_plot["cluster"].unique(), key=str)
+    colors = [_PALETTE[i % len(_PALETTE)] for i in range(len(cluster_ids))]
+
+    fig, ax = plt.subplots(figsize=(7, 6))
+
+    for cid, color in zip(cluster_ids, colors):
+        sub = df_plot[df_plot["cluster"] == cid]
+        ax.scatter(sub[xcol], sub[ycol], color=color, label=f"Cluster {cid}",
+                   s=60, alpha=0.85, edgecolors="white", linewidths=0.5)
+
+    ax.axhline(0, color="gray", linewidth=0.6, linestyle="--", alpha=0.5)
+    ax.axvline(0, color="gray", linewidth=0.6, linestyle="--", alpha=0.5)
+    ax.set_xlabel(f"{xcol} (z)", fontsize=11)
+    ax.set_ylabel(f"{ycol} (z)", fontsize=11)
+    ax.set_title(f"Fatigue-Cluster\n{method}", fontsize=11, fontweight="bold")
+    ax.legend(fontsize=9, framealpha=0.8)
+
+    fig.tight_layout()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out = out_dir / f"fatigue_cluster_scatter{suffix}.png"
+    fig.savefig(out, dpi=DPI, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  -> Fatigue-Cluster-Scatter: {out}")
+
+
 # ── Alle Plots auf einmal ─────────────────────────────────────────────────────
 
 def create_all_plots(
