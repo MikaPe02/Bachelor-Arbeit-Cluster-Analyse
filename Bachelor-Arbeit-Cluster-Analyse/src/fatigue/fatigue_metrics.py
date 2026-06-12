@@ -3,15 +3,15 @@
 # ZWECK: Berechnung von Ermüdungsmetriken pro Proband aus dem Dual-Axis Dataset.
 #
 # KONZEPT:
-#   Jeder Proband hat Messungen an mehreren km-Marken (z.B. km 1.0, 1.5, ... 10.0).
+#   Jeder Proband hat Messungen an den ganzzahligen km-Marken km 1 bis km 10.
 #   Pro Proband werden zwei Kennwerte pro Variable (DF, SF_norm) berechnet:
 #
-#   Delta = letzter Wert − erster Wert
-#   → Beschreibt die Gesamtveränderung von Start bis Ende
+#   Delta = Wert bei km 10 − Wert bei km 1
+#   → Beschreibt die Gesamtveränderung von Start (km 1) bis Ende (km 10)
 #   → Einfach interpretierbar, aber sensitiv gegenüber Ausreißern
 #
-#   Slope = Steigung der linearen Regression (km → Variable)
-#   → Beschreibt den Trend über die gesamte Distanz
+#   Slope = Steigung der linearen Regression (km 1–10 → Variable)
+#   → Beschreibt den Trend über alle 10 km
 #   → Robuster als Delta, weil alle Messpunkte eingehen
 #
 #   WARUM BEIDE:
@@ -49,11 +49,11 @@ def compute_delta(series: pd.Series) -> float:
 
     Parameters
     ----------
-    series : pd.Series – Zeitreihe einer Variable (sortiert nach km)
+    series : pd.Series – Zeitreihe einer Variable, sortiert nach km (km 1 bis km 10)
 
     Returns
     -------
-    float
+    float – Wert bei km 10 minus Wert bei km 1
     """
     if len(series) < 2:
         raise ValueError(
@@ -82,7 +82,7 @@ def compute_slope(x: np.ndarray, y: np.ndarray) -> float:
 
     Parameters
     ----------
-    x : array-like – km-Werte (z.B. [1.0, 1.5, 2.0, ..., 10.0])
+    x : array-like – km-Werte (ganzzahlig: [1, 2, 3, ..., 10])
     y : array-like – Variablenwerte (DF oder SF_norm)
 
     Returns
@@ -113,7 +113,7 @@ def compute_subject_fatigue(df_subject: pd.DataFrame) -> dict:
     Berechnet alle Ermüdungsmetriken für einen einzelnen Probanden.
 
     Eingabe-DataFrame muss folgende Spalten enthalten:
-        km      – km-Marke (float, z.B. 1.0, 1.5, ..., 10.0)
+        km      – km-Marke (ganzzahlig: 1, 2, ..., 10)
         DF      – Duty Factor pro km-Marke
         SF_norm – Normierte Schrittfrequenz pro km-Marke
 
@@ -124,17 +124,17 @@ def compute_subject_fatigue(df_subject: pd.DataFrame) -> dict:
 
     Parameters
     ----------
-    df_subject : pd.DataFrame – Daten eines einzelnen Probanden
+    df_subject : pd.DataFrame – Daten eines einzelnen Probanden (km 1–10)
 
     Returns
     -------
     dict mit:
-        DF_start, DF_end      – erster/letzter DF-Wert
-        Delta_DF              – Gesamtveränderung DF
-        Slope_DF              – linearer Trend DF pro km
-        SF_start, SF_end      – erster/letzter SF_norm-Wert
-        Delta_SF              – Gesamtveränderung SF_norm
-        Slope_SF              – linearer Trend SF_norm pro km
+        DF_start, DF_end      – DF bei km 1 / km 10
+        Delta_DF              – Gesamtveränderung DF (km 10 − km 1)
+        Slope_DF              – linearer Trend DF pro km (km 1–10)
+        SF_start, SF_end      – SF_norm bei km 1 / km 10
+        Delta_SF              – Gesamtveränderung SF_norm (km 10 − km 1)
+        Slope_SF              – linearer Trend SF_norm pro km (km 1–10)
     """
     # Pflichtfelder prüfen
     required_cols = {"km", "DF", "SF_norm"}

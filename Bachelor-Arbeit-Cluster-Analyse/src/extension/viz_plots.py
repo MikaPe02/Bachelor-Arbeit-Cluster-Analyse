@@ -48,10 +48,10 @@ _BASE_RCPARAMS = {
     "legend.fontsize": 10,
 }
 
-FIGSIZE = (8.0, 6.5)
+FIGSIZE = (16 / 2.54, 13 / 2.54)   # 16 cm Breite, quadratisch-ähnlich
 DPI     = 300
-XLIM    = (0.45, 0.88)   # DF-Achse, einheitlich fuer alle drei Plots
-YLIM    = (0.65, 1.08)   # SF_norm-Achse, einheitlich fuer alle drei Plots
+XLIM    = (0.43, 0.92)   # DF-Achse, einheitlich fuer alle drei Plots
+YLIM    = (0.62, 1.15)   # SF_norm-Achse, einheitlich fuer alle drei Plots
 
 
 # ── Hilfsfunktionen ───────────────────────────────────────────────────────────
@@ -88,11 +88,11 @@ def _add_region_labels(ax: plt.Axes) -> None:
 
 
 def _set_axes(ax: plt.Axes) -> None:
-    ax.set_xlabel("Duty Factor (DF)")
-    ax.set_ylabel("SF norm")
+    ax.set_xlabel("Duty Factor")
+    ax.set_ylabel("Normierte Schrittfrequenz")
     ax.set_xlim(XLIM)
     ax.set_ylim(YLIM)
-    ax.grid(True, linewidth=0.4, alpha=0.6)
+    ax.grid(True, linewidth=0.5, alpha=0.5)
 
 
 
@@ -164,11 +164,7 @@ def dual_axis_snapshot(
         raise ValueError("Keine Daten bei km=1.0 gefunden.")
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
-    method_str = _method_label(selection)
-    suffix = f" ({method_str})" if method_str else ""
-    ax.set_title(f"Dual-Axis Framework \u2013 Ausgangslaufstile bei km 1.0{suffix}")
     _set_axes(ax)
-    _add_region_labels(ax)
 
     ax.scatter(
         snap["DF"], snap["SF_norm"],
@@ -180,8 +176,8 @@ def dual_axis_snapshot(
         ax.annotate(
             row["Subject"],
             xy=(row["DF"], row["SF_norm"]),
-            xytext=(3, 3), textcoords="offset points",
-            fontsize=7, color="#333333",
+            xytext=(4, 4), textcoords="offset points",
+            fontsize=6, color="#555555",
         )
 
     fig.tight_layout()
@@ -233,11 +229,7 @@ def dual_axis_arrows(
         color_map["Noise"] = "#AAAAAA"
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
-    method_str = _method_label(selection)
-    method_suffix = f" \u2013 {method_str}" if method_str else ""
-    ax.set_title(f"Erm\u00fcdungsverlauf im Dual-Axis Raum (km 1.0 \u2192 km {km_end:.1f}){method_suffix}")
     _set_axes(ax)
-    _add_region_labels(ax)
 
     # Startpunkte als Kreise
     for lab in sorted(color_map):
@@ -261,15 +253,20 @@ def dual_axis_arrows(
                 zorder=4,
             )
 
-    # Legende
+    # Legende: Kreise für Cluster-Farben
     handles = [
-        mpatches.Patch(
-            color=color_map[lab],
-            label="Noise (HDBSCAN)" if lab == "Noise" else str(lab),
-        )
+        mlines.Line2D([0], [0], marker="o", color=color_map[lab], linestyle="None",
+                      markersize=7, label="Noise (HDBSCAN)" if lab == "Noise" else str(lab))
         for lab in sorted(color_map)
     ]
-    ax.legend(handles=handles, title=cluster_col, loc="best", frameon=True)
+    # Legende: Startpunkt + Pfeil-Erklärung
+    legend_extra = [
+        mlines.Line2D([0], [0], marker="o", color="#555555", linestyle="None",
+                      markersize=6, label="km 1 (Start)"),
+        mlines.Line2D([0], [0], marker=">", color="#555555", linestyle="-",
+                      markersize=6, label="km 10 (Ende)"),
+    ]
+    ax.legend(handles=handles + legend_extra, title="Cluster", loc="upper right", frameon=True)
 
     fig.tight_layout()
     _save(fig, out_dir, f"dual_axis_arrows{_file_suffix(selection)}.png")
@@ -305,11 +302,7 @@ def cluster_scatter(
         color_map["Noise"] = "#AAAAAA"
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
-    method_str = _method_label(selection)
-    suffix = f" ({method_str})" if method_str else ""
-    ax.set_title(f"Clustering-Ergebnis im Dual-Axis Raum{suffix}")
     _set_axes(ax)
-    _add_region_labels(ax)
 
     for lab in sorted(color_map):
         sub = snap[snap[cluster_col] == lab]
@@ -317,303 +310,206 @@ def cluster_scatter(
 
         scatter_label = "Noise (HDBSCAN)" if lab == "Noise" else str(lab)
         ax.scatter(sub["DF"], sub["SF_norm"],
-                   color=c, s=60, alpha=0.85, zorder=3, label=scatter_label)
+                   color=c, s=55, alpha=0.85, zorder=3, label=scatter_label)
 
         # Zentroid als X
         cx = sub["DF"].mean()
         cy = sub["SF_norm"].mean()
         ax.scatter(cx, cy,
-                   marker="X", s=180, color=c,
+                   marker="X", s=160, color=c,
                    edgecolors="black", linewidths=0.8,
                    zorder=5)
 
-    ax.legend(title=cluster_col, loc="best", frameon=True)
+    # Zentroid-Eintrag in Legende
+    centroid_handle = mlines.Line2D(
+        [], [], marker="X", color="gray", linestyle="None",
+        markersize=8, markeredgecolor="black", markeredgewidth=0.8,
+        label="Zentroid",
+    )
+    handles, labels_leg = ax.get_legend_handles_labels()
+    ax.legend(handles=handles + [centroid_handle], labels=labels_leg + ["Zentroid"],
+              title="Cluster", loc="best", frameon=True)
 
     fig.tight_layout()
     _save(fig, out_dir, f"cluster_scatter{_file_suffix(selection)}.png")
     return fig, ax
 
 
-# ── Plot 4 ────────────────────────────────────────────────────────────────────
+# ── Plot 4 ────────────────────────────────────────────────────────────────────────────────
 
 def metrics_table(
     df_results: pd.DataFrame,
     *,
     selection=None,
-    out_dir: Optional[Path] = None,
+    out_dir=None,
 ) -> plt.Figure:
-    """
-    Plot 4: Wissenschaftliche Tabelle der Clustering-Validierungsmetriken.
-
-    Booktabs-Stil: nur horizontale Linien, kein Farbe, schwarz/weiss/grau.
-    Pro Methode/Linkage-Gruppe: best_k − 1, best_k, best_k + 1.
-    Beste Zeile hellgrau hinterlegt, Werte fett.
-    k ausserhalb des getesteten Bereichs: grauer Text, Werte als '—'.
-
-    Parameters
-    ----------
-    df_results : Ausgabe von evaluate_clustering_methods() + add_best_flag()
-    out_dir    : Speicherordner; None = nicht speichern
-    """
+    # APA-Stil Tabelle der Clustering-Validierungsmetriken. Kein Titel, keine Legende.
     plt.rcParams.update(_BASE_RCPARAMS)
 
-    # ── Spalten: Beschriftung und Mittelpunkte (normiert 0–1) ─────────────────
-    COL_LABELS  = ["Methode", "Linkage", "k",
-                   "Silhouette \u2191", "Davies-Bouldin \u2193",
-                   "Calinski-Harabasz \u2191"]
-    # Breiten: 0.175 + 0.115 + 0.065 + 0.205 + 0.215 + 0.225 = 1.0
-    COL_CENTERS = [0.088, 0.233, 0.323, 0.460, 0.670, 0.888]
+    sil_col = "silhouette"
+    db_col  = "davies_bouldin"
+    ch_col  = "calinski_harabasz"
+    nf_col  = "n_clusters_found"
 
-    # ── Gruppen aufbauen ──────────────────────────────────────────────────────
+    COL_LABELS = [
+        "Methode", "Linkage", "k",
+        "Silhouette ↑", "D.-Bouldin ↓", "Cal.-Harabasz ↑",
+    ]
+    COL_X     = [0.01, 0.22, 0.33, 0.48, 0.65, 0.83]
+    COL_ALIGN = ["left", "center", "center", "center", "center", "center"]
+
+    # Gruppen aufbauen
     groups = []
-    for linkage in ["ward", "complete", "average", "single"]:
-        mask = (df_results["method"] == "hierarchical") & (df_results["linkage"] == linkage)
+    for lnk in ["ward", "complete", "average", "single"]:
+        mask = (df_results["method"] == "hierarchical") & (df_results["linkage"] == lnk)
         if mask.any():
-            groups.append(("hierarchical", linkage, df_results[mask].copy()))
-    mask = df_results["method"] == "kmeans"
-    if mask.any():
-        groups.append(("kmeans", None, df_results[mask].copy()))
-    mask = df_results["method"] == "hdbscan"
-    if mask.any():
-        groups.append(("hdbscan", None, df_results[mask].copy()))
+            groups.append(("hierarchical", lnk, df_results[mask].copy()))
+    for meth in ["kmeans", "hdbscan"]:
+        mask = df_results["method"] == meth
+        if mask.any():
+            groups.append((meth, None, df_results[mask].copy()))
 
-    # ── Zeilen aufbauen ───────────────────────────────────────────────────────
     display_rows: list[dict] = []
-    _best_hdb_row = None  # fuer HDBSCAN-Fussnote in der Legende
 
     for method, linkage, df_grp in groups:
         best_rows = df_grp[df_grp["is_best"] == True]
         if best_rows.empty:
             continue
 
-        # ── HDBSCAN: eine Zeile pro min_cluster_size (bestes rank_mean) ───────
         if method == "hdbscan":
-            valid = df_grp[df_grp["silhouette"].notna()].copy()
+            valid = df_grp[df_grp[sil_col].notna()].copy()
             if valid.empty:
                 continue
-
-            # Globale beste HDBSCAN-Zeile fuer is_best-Markierung und Legende
             if "rank_mean" in best_rows.columns and best_rows["rank_mean"].notna().any():
-                best_idx      = best_rows["rank_mean"].idxmin()
+                best_idx = best_rows["rank_mean"].idxmin()
             else:
-                best_idx      = best_rows["silhouette"].idxmax()
-            _best_hdb_row = df_grp.loc[best_idx]
-
-            mcs_values = sorted(valid["min_cluster_size"].unique())[:3]
-            for mcs in mcs_values:
+                best_idx = best_rows[sil_col].idxmax()
+            for mcs in sorted(valid["min_cluster_size"].unique())[:3]:
                 mcs_rows = valid[valid["min_cluster_size"] == mcs]
                 if mcs_rows.empty:
                     continue
                 if "rank_mean" in mcs_rows.columns and mcs_rows["rank_mean"].notna().any():
                     r = mcs_rows.loc[mcs_rows["rank_mean"].idxmin()]
                 else:
-                    r = mcs_rows.loc[mcs_rows["silhouette"].idxmax()]
-
-                row_data = [
-                    "HDBSCAN", f"mcs={int(mcs)}", f"{int(r['n_clusters_found'])}*",
-                    f"{r['silhouette']:.4f}",
-                    f"{r['davies_bouldin']:.4f}",
-                    f"{r['calinski_harabasz']:.2f}",
-                ]
+                    r = mcs_rows.loc[mcs_rows[sil_col].idxmax()]
                 display_rows.append({
-                    "data":          row_data,
-                    "is_best":       (r.name == best_idx),
-                    "exists":        True,
+                    "data": [
+                        "HDBSCAN", f"mcs = {int(mcs)}", str(int(r[nf_col])),
+                        f"{r[sil_col]:.3f}", f"{r[db_col]:.3f}", f"{r[ch_col]:.1f}",
+                    ],
+                    "is_best": r.name == best_idx,
+                    "is_selected": False,
+                    "exists": True,
                     "last_in_group": False,
                 })
             if display_rows:
                 display_rows[-1]["last_in_group"] = True
             continue
 
-        # ── k-Means / Hierarchisch: best_k ± 1 ───────────────────────────────
-        best_k      = int(best_rows.iloc[0]["k"])
-        method_lbl  = "Hierarchisch" if method == "hierarchical" else "k-Means"
-        linkage_lbl = linkage.capitalize() if linkage else "\u2014"
+        best_k   = int(best_rows.iloc[0]["k"])
+        meth_lbl = "Hierarchisch" if method == "hierarchical" else "k-Means"
+        lnk_lbl  = linkage.capitalize() if linkage else "—"
 
-        for k_val in [best_k - 1, best_k, best_k + 1]:
+        # Sicherstellen dass die gewählte k auch in der Tabelle erscheint
+        sel_k = int(selection["k"]) if (
+            selection and selection.get("method") == method
+            and (linkage is None or selection.get("linkage") == linkage)
+        ) else None
+        k_vals = sorted(set([best_k - 1, best_k, best_k + 1] + ([sel_k] if sel_k else [])))
+
+        for k_val in k_vals:
             match  = df_grp[df_grp["k"] == k_val]
-            exists  = not match.empty
-            is_best = (k_val == best_k)
-
+            exists = not match.empty
             if exists:
-                r = match.iloc[0]
-                row_data = [
-                    method_lbl, linkage_lbl, str(k_val),
-                    f"{r['silhouette']:.4f}",
-                    f"{r['davies_bouldin']:.4f}",
-                    f"{r['calinski_harabasz']:.2f}",
+                r    = match.iloc[0]
+                data = [
+                    meth_lbl, lnk_lbl, str(k_val),
+                    f"{r[sil_col]:.3f}", f"{r[db_col]:.3f}", f"{r[ch_col]:.1f}",
                 ]
             else:
-                row_data = [method_lbl, linkage_lbl, str(k_val),
-                            "\u2014", "\u2014", "\u2014"]
-
+                data = [meth_lbl, lnk_lbl, str(k_val), "—", "—", "—"]
+            is_selected = (sel_k is not None and k_val == sel_k)
             display_rows.append({
-                "data":          row_data,
-                "is_best":       is_best,
-                "exists":        exists,
+                "data": data,
+                "is_best": k_val == best_k,
+                "is_selected": is_selected,
+                "exists": exists,
                 "last_in_group": False,
             })
-
         display_rows[-1]["last_in_group"] = True
 
-    # ── Figur-Groesse ─────────────────────────────────────────────────────────
-    n_data       = len(display_rows)
-    n_total_rows = n_data + 1          # +1 Header
-    row_h_in     = 0.30
-    table_h_in   = n_total_rows * row_h_in
-    title_h_in   = 0.50
-    sep_h_in     = 0.18
-    legend_h_in  = 2.15
-    pad_in       = 0.28
-    fig_h        = title_h_in + table_h_in + sep_h_in + legend_h_in + pad_in
+    # Figur
+    n_data   = len(display_rows)
+    row_h_in = 0.30
+    pad_in   = 0.20
+    fig_w    = 20 / 2.54   # etwas breiter für Spaltenabstand
+    fig_h    = pad_in + (n_data + 1) * row_h_in + pad_in
+    fig      = plt.figure(figsize=(fig_w, fig_h))
 
-    fig = plt.figure(figsize=(12.0, fig_h))
-
-    # Normierte y-Positionen (Ursprung unten)
-    legend_bot  = (pad_in / 2) / fig_h
-    legend_frac = legend_h_in / fig_h
-    sep_frac    = sep_h_in / fig_h
-    table_bot   = legend_bot + legend_frac + sep_frac
-    table_frac  = table_h_in / fig_h
-    title_bot   = table_bot + table_frac
-
-    # ── Titel ─────────────────────────────────────────────────────────────────
-    fig.text(
-        0.5, title_bot + (title_h_in / fig_h) * 0.45,
-        "Vergleich der Clustering-Methoden \u2013 Validierungsmetriken",
-        ha="center", va="center", fontsize=12, fontweight="bold",
-    )
-
-    # ── Tabellen-Achse ────────────────────────────────────────────────────────
-    ax = fig.add_axes([0.01, table_bot, 0.98, table_frac])
+    ax = fig.add_axes([0.0, 0.0, 1.0, 1.0])
     ax.set_xlim(0, 1)
-    ax.set_ylim(0, 1)
+    ax.set_ylim(0, fig_h)
     ax.axis("off")
 
-    row_h = 1.0 / n_total_rows          # Zeilenhoehe in Achsen-Koordinaten
+    top      = fig_h - pad_in
+    header_y = top - row_h_in / 2
+    data_ys  = [top - row_h_in * (i + 1.5) for i in range(n_data)]
+    data_bot = [top - row_h_in * (i + 2.0) for i in range(n_data)]
 
-    # y-Positionen: Header ganz oben
-    header_bot = 1.0 - row_h
-    header_ctr = 1.0 - row_h / 2.0
-    data_ctrs  = [1.0 - row_h * (i + 1.5) for i in range(n_data)]
-    data_bots  = [1.0 - row_h * (i + 2.0) for i in range(n_data)]
+    def _hline(y, lw, color="black"):
+        ax.plot([0, 1], [y, y], color=color, linewidth=lw,
+                clip_on=False, solid_capstyle="butt", zorder=4)
 
-    # ── Hintergruende ─────────────────────────────────────────────────────────
-    ax.add_patch(mpatches.Rectangle(
-        (0, header_bot), 1.0, row_h,
-        facecolor="#2D2D2D", edgecolor="none", zorder=1, clip_on=False,
-        transform=ax.transData,
-    ))
+    # Toprule
+    _hline(top, 1.5)
+    # Header
+    for j, lbl in enumerate(COL_LABELS):
+        ax.text(COL_X[j], header_y, lbl,
+                ha=COL_ALIGN[j], va="center",
+                fontsize=10, fontweight="bold", color="black", zorder=3)
+    # Midrule
+    _hline(top - row_h_in, 1.0)
 
     for i, meta in enumerate(display_rows):
-        if meta["is_best"]:
+        y      = data_ys[i]
+        ybot   = data_bot[i]
+        ytop   = ybot + row_h_in
+        color  = "black"  if meta["exists"]     else "#AAAAAA"
+        weight = "bold"   if meta["is_best"] or meta.get("is_selected") else "normal"
+
+        # Gewählte Konfiguration: hellgrauer Hintergrund + Markierung
+        if meta.get("is_selected"):
             ax.add_patch(mpatches.Rectangle(
-                (0, data_bots[i]), 1.0, row_h,
-                facecolor="#F0F0F0", edgecolor="none", zorder=1, clip_on=False,
-                transform=ax.transData,
+                (0, ybot), 1.0, row_h_in,
+                facecolor="#E8F0FB", edgecolor="none", zorder=1,
             ))
 
-    # ── Text: Header ─────────────────────────────────────────────────────────
-    for j, lbl in enumerate(COL_LABELS):
-        ax.text(COL_CENTERS[j], header_ctr, lbl,
-                ha="center", va="center",
-                fontsize=10, fontweight="bold", color="white",
-                zorder=3)
-
-    # ── Text: Datenzeilen ─────────────────────────────────────────────────────
-    for i, meta in enumerate(display_rows):
-        txt_color = "#999999" if not meta["exists"] else "black"
-        weight    = "bold"    if meta["is_best"]    else "normal"
         for j, val in enumerate(meta["data"]):
-            ax.text(COL_CENTERS[j], data_ctrs[i], val,
-                    ha="center", va="center",
-                    fontsize=10, color=txt_color, fontweight=weight,
-                    zorder=3)
+            ax.text(COL_X[j], y, val,
+                    ha=COL_ALIGN[j], va="center",
+                    fontsize=10, color=color, fontweight=weight, zorder=3)
 
-    # ── Horizontale Linien (booktabs) ─────────────────────────────────────────
-    def _hline(y: float, lw: float, color: str = "black") -> None:
-        ax.plot([0, 1], [y, y], color=color, linewidth=lw,
-                transform=ax.transData, zorder=4,
-                clip_on=False, solid_capstyle="butt")
+        # Markierungssymbol rechts außen für gewählte Zeile
+        if meta.get("is_selected"):
+            ax.text(0.98, y, "◄ gewählt",
+                    ha="right", va="center",
+                    fontsize=8, color="#2255AA", fontstyle="italic", zorder=3)
 
-    _hline(header_bot, lw=1.5)           # midrule
-
-    for i, meta in enumerate(display_rows):
-        y = data_bots[i]
         if i == n_data - 1:
-            _hline(y, lw=2.0)            # bottomrule
+            _hline(ybot, 1.5)
         elif meta["last_in_group"]:
-            _hline(y, lw=2.0)            # Gruppen-Trennlinie
+            _hline(ybot, 0.8, "#555555")
         else:
-            _hline(y, lw=0.5, color="#888888")  # Zeilen-Trennlinie
-
-    # ── Trennlinie Tabelle / Legende ──────────────────────────────────────────
-    sep_y = table_bot - 0.004
-    fig.add_artist(mlines.Line2D(
-        [0.01, 0.99], [sep_y, sep_y],
-        transform=fig.transFigure,
-        color="#888888", linewidth=0.5, zorder=5,
-    ))
-
-    # ── Legende ───────────────────────────────────────────────────────────────
-    ax_leg = fig.add_axes([0.01, legend_bot, 0.98, legend_frac - 0.01])
-    ax_leg.axis("off")
-
-    legend_text = (
-        "Kennwerte zur Bewertung der Clustering-Qualit\u00e4t"
-        " (Quelle: Arbelaitz et al., 2013, Pattern Recognition):\n\n"
-
-        "Silhouette-Koeffizient \u2191\u2002\u2002"
-        "Bereich: \u22121 bis +1.\u2002"
-        "Misst Koh\u00e4sion und Separation der Cluster.\u2002"
-        "Werte nahe +1\u202f=\u202fgut getrennte, kompakte Cluster.\u2002"
-        "Werte nahe 0\u202f=\u202f\u00fcberlappend.\u2002"
-        "Werte\u202f<\u202f0\u202f=\u202ffehlerhafte Zuweisung.\n\n"
-
-        "Davies-Bouldin-Index \u2193\u2002\u2002\u2002\u2002"
-        "Bereich: \u2265\u20020.\u2002"
-        "Verh\u00e4ltnis aus mittlerer Streuung innerhalb der Cluster"
-        " zum Abstand zwischen den Clusterzentren.\u2002"
-        "Niedrigere Werte\u202f=\u202fbessere Trennung.\u2002"
-        "0\u202f=\u202ftheoretisches Optimum.\n\n"
-
-        "Calinski-Harabasz-Index \u2191\u2002"
-        "Bereich: \u2265\u20020.\u2002"
-        "Verh\u00e4ltnis der Zwischen-Cluster-Varianz zur Binnen-Cluster-Varianz.\u2002"
-        "H\u00f6here Werte\u202f=\u202fkompaktere, besser getrennte Cluster.\u2002"
-        "Kein absolutes Optimum \u2013 nur im Vergleich interpretierbar.\n\n"
-
-        "Grau hinterlegt\u202f=\u202fbeste Konfiguration je Methode/Linkage"
-        " (Rang-Aggregation \u00fcber alle drei Kennwerte).\u2003"
-        "Grauer Text\u202f=\u202fk nicht im getesteten Bereich.\u2003"
-        "\u2191\u202fh\u00f6her ist besser.\u2003"
-        "\u2193\u202fniedriger ist besser.\n\n"
-
-        "k\u202f=\u202fAnzahl der Cluster.\u2003"
-        "mcs\u202f=\u202fmin_cluster_size (HDBSCAN: Mindestgr\u00f6\u00dfe eines Clusters)."
-    )
-
-    if _best_hdb_row is not None:
-        _hdb_mcs = int(_best_hdb_row["min_cluster_size"])
-        _hdb_ms  = "auto" if pd.isna(_best_hdb_row["min_samples"]) else str(int(_best_hdb_row["min_samples"]))
-        legend_text += (
-            f"\n\n* k automatisch durch HDBSCAN bestimmt"
-            f" (min_cluster_size={_hdb_mcs}, min_samples={_hdb_ms})."
-        )
-
-    ax_leg.text(
-        0.0, 1.0, legend_text,
-        transform=ax_leg.transAxes,
-        va="top", ha="left",
-        fontsize=8, linespacing=1.55,
-        color="#222222",
-    )
+            _hline(ybot, 0.4, "#BBBBBB")
 
     speed_str = "_speedber" if (selection or {}).get("speed_corrected") else "_roh"
-    _save(fig, out_dir, f"metrics_table{speed_str}.png")
+    if out_dir is not None:
+        from pathlib import Path as _Path
+        _out = _Path(out_dir)
+        _out.mkdir(parents=True, exist_ok=True)
+        fig.savefig(_out / f"metrics_table{speed_str}.png", dpi=300, bbox_inches="tight")
     plt.close(fig)
     return fig
-
 
 # ── Plot 5 ────────────────────────────────────────────────────────────────────
 
@@ -663,22 +559,20 @@ def elbow_plot(
         (df_results["method"] == "kmeans") & (df_results["is_best"] == True), "k"
     ].iloc[0])
 
-    fig, ax = plt.subplots(figsize=(7.0, 4.5))
-    ax.plot(df_km["k"], df_km["inertia_pct"], marker="o", linewidth=1.8,
-            color="#4477AA", markersize=6)
-    ax.axvline(best_k, linestyle="--", color="#EE6677", linewidth=1.5,
-               label=f"Bestes k = {best_k}")
-    ax.set_xlabel("Anzahl Cluster k")
-    ax.set_ylabel("Innerhalb-Cluster-Streuung\n(% der Streuung bei k=1)")
-    chosen = _method_label(selection) if selection else ""
-    chosen_str = f" | Gew\u00e4hltes Verfahren: {chosen}" if chosen else ""
-    ax.set_title(f"Elbow-Methode: Innerhalb-Cluster-Streuung (k-Means Inertia){chosen_str}")
+    fig, ax = plt.subplots(figsize=(16 / 2.54, 8 / 2.54))
+    ax.plot(df_km["k"], df_km["inertia_pct"], marker="o", linewidth=2.0,
+            color="#4477AA", markersize=7)
+    ax.axvline(best_k, linestyle="--", color="#EE6677", linewidth=1.8,
+               label=f"Empfohlenes k = {best_k} (k-Means)")
+    ax.set_xlabel("Anzahl Cluster (k)")
+    ax.set_ylabel("WCSS (normiert, %)")
     ax.set_xticks(df_km["k"].tolist())
     ax.set_ylim(0, 105)
     ax.yaxis.set_major_formatter(mticker.PercentFormatter(decimals=0))
-    ax.legend(frameon=True)
-    ax.grid(True, linewidth=0.4, alpha=0.6)
+    ax.legend(frameon=True, loc="upper right", fontsize=10)
+    ax.grid(True, linewidth=0.5, alpha=0.5)
     fig.tight_layout()
+    fig.subplots_adjust(left=0.12)
 
     cfg.OUTPUT_PLOTS_DIR.mkdir(parents=True, exist_ok=True)
     out = cfg.OUTPUT_PLOTS_DIR / f"elbow_plot{_file_suffix(selection)}.png"
@@ -693,20 +587,24 @@ def dendrogram_plot(
     df_features_z: pd.DataFrame,
     selection: dict,
     cfg,
+    labels: "pd.Series | None" = None,
 ) -> None:
     """
     Plot 6: Dendrogramm des hierarchischen Clusterings.
 
     Nur sinnvoll bei hierarchischem Clustering. Zeigt die Merge-Hierarchie
     mit einer horizontalen gestrichelten Linie beim Schnitt fuer k Cluster.
+    Cluster-Aeste werden mit denselben Farben wie die anderen Plots eingefaerbt
+    (Paul-Tol-Palette), sofern labels uebergeben werden.
 
     Parameters
     ----------
     df_features_z : Z-transformierte Feature-Tabelle mit Spalte 'Subject'
     selection     : dict mit 'linkage' und 'k'
     cfg           : config-Modul (benoetigt OUTPUT_PLOTS_DIR, RANDOM_STATE)
+    labels        : pd.Series mit Index=Subject, Values=Cluster-Label (fuer konsistente Farben)
     """
-    from scipy.cluster.hierarchy import linkage, dendrogram
+    from scipy.cluster.hierarchy import linkage, dendrogram, fcluster
 
     linkage_method = selection["linkage"]
     k              = selection["k"]
@@ -719,59 +617,82 @@ def dendrogram_plot(
 
     # Schnittlinie: Mitte zwischen dem Merge der k→k-1 Reduktion
     # und dem letzten Merge innerhalb der k Cluster.
-    # Z ist (n-1, 4); Zeile n-k ist der Merge von k+1 auf k Cluster,
-    # Zeile n-k-1 ist der letzte Merge innerhalb der k Cluster.
     cut_upper = float(Z[n - k,     2])
     cut_lower = float(Z[n - k - 1, 2]) if k < n - 1 else 0.0
     cut_y     = (cut_upper + cut_lower) / 2.0
 
-    # Graustufen fuer k Cluster: gleichmaessig von #000000 bis #AAAAAA
-    if k > 1:
-        step = 0xAA / (k - 1)
-        _grey_colors = [
-            f"#{int(round(i * step)):02X}{int(round(i * step)):02X}{int(round(i * step)):02X}"
-            for i in range(k)
-        ]
+    # Y-Achsen-Beschriftung je nach Linkage-Methode
+    _ylabel_map = {
+        "ward":     "Fusionierungsdistanz (Ward)",
+        "complete": "Fusionierungsdistanz (Complete Linkage)",
+        "average":  "Fusionierungsdistanz (Average Linkage)",
+        "single":   "Fusionierungsdistanz (Single Linkage)",
+    }
+    ylabel = _ylabel_map.get(linkage_method, "Fusionierungsdistanz")
+
+    # Cluster-Zuordnung: Blatt-Index → echtes Cluster-Label → Palette-Farbe
+    cluster_ids = fcluster(Z, k, criterion="maxclust")  # 1-basiert, Länge n
+    # Palette nach sortierten echten Labels aufbauen (identisch zu _build_color_map)
+    if labels is not None:
+        label_series = labels.reset_index()
+        label_series.columns = ["Subject", "cluster_label"]
+        sorted_real = sorted(set(str(v) for v in labels.values), key=str)
+        real_to_color = {lab: _PALETTE[i % len(_PALETTE)] for i, lab in enumerate(sorted_real)}
+        # Blatt-Index → echtes Label
+        leaf_to_color: dict[int, str] = {}
+        for i, s in enumerate(subjects):
+            row = label_series.loc[label_series["Subject"] == s, "cluster_label"]
+            if not row.empty:
+                leaf_to_color[i] = real_to_color.get(str(row.iloc[0]), "#CCCCCC")
+            else:
+                leaf_to_color[i] = "#CCCCCC"
+        # scipy-Cluster-ID (1-basiert) → Farbe über repräsentatives Blatt
+        scipy_id_to_color: dict[int, str] = {}
+        for i, cid in enumerate(cluster_ids):
+            if cid not in scipy_id_to_color:
+                scipy_id_to_color[cid] = leaf_to_color.get(i, "#CCCCCC")
     else:
-        _grey_colors = ["#000000"]
+        scipy_id_to_color = {i + 1: _PALETTE[i % len(_PALETTE)] for i in range(k)}
 
-    fig, ax = plt.subplots(figsize=(10, 5))
-    ax.set_title(
-        f"Dendrogramm \u2013 Hierarchisches Clustering"
-        f" (Linkage: {linkage_method}, k={k})"
-    )
+    # link_color_func: scipy übergibt den Index des Merge-Knotens
+    # Knoten deren Merge-Distanz >= cut_y ist → grau (oberhalb des Schnitts)
+    def _link_color(node_id: int) -> str:
+        if node_id < n:
+            # Blattknoten: immer Clusterfarbe
+            cid = int(cluster_ids[node_id])
+            return scipy_id_to_color.get(cid, "#CCCCCC")
+        merge_row = node_id - n
+        if merge_row >= len(Z):
+            return "#CCCCCC"
+        merge_dist = float(Z[merge_row, 2])
+        if merge_dist >= cut_y:
+            return "#CCCCCC"
+        # Unterhalb des Schnitts: Farbe anhand des ersten Blatts links
+        left = int(Z[merge_row, 0])
+        leaf = left
+        while leaf >= n:
+            leaf = int(Z[leaf - n, 0])
+        cid = int(cluster_ids[leaf])
+        return scipy_id_to_color.get(cid, "#CCCCCC")
 
-    # Dendrogramm mit Standard-Einfärbung zeichnen (gibt k unterschiedliche Farben)
+    fig, ax = plt.subplots(figsize=(24 / 2.54, 12 / 2.54))
+
     dendrogram(
         Z,
         labels=subjects,
         ax=ax,
         color_threshold=cut_y,
-        above_threshold_color="#DDDDDD",
+        above_threshold_color="#CCCCCC",
+        link_color_func=_link_color,
     )
 
-    # scipy-Farben unterhalb der Schnittlinie inventarisieren und
-    # durch Graustufen ersetzen; Äste oberhalb bleiben #DDDDDD
-    scipy_colors = []
-    for line in ax.get_lines():
-        c = line.get_color()
-        if c != "#DDDDDD" and c not in scipy_colors:
-            scipy_colors.append(c)
-
-    color_remap = {sc: _grey_colors[i % len(_grey_colors)]
-                   for i, sc in enumerate(scipy_colors)}
-    color_remap["#DDDDDD"] = "#DDDDDD"
-
-    for line in ax.get_lines():
-        c = line.get_color()
-        line.set_color(color_remap.get(c, c))
-
-    ax.axhline(cut_y, linestyle="--", color="black", linewidth=1.2,
-               label=f"Schnitt bei k={k}  (d = {cut_y:.2f})")
-    ax.set_ylabel("Distanz")
-    ax.tick_params(axis="x", labelsize=9, rotation=45)
-    plt.setp(ax.get_xticklabels(), ha="right")
-    ax.legend(frameon=True, fontsize=9)
+    ax.axhline(cut_y, linestyle="--", color="black", linewidth=1.5,
+               label=f"Clusteranzahl: k = {k}")
+    ax.set_ylabel(ylabel)
+    ax.set_xlabel("Proband")
+    ax.tick_params(axis="x", labelsize=8, rotation=45)
+    plt.setp(ax.get_xticklabels(), ha="right", rotation_mode="anchor")
+    ax.legend(frameon=True, fontsize=10, loc="upper right")
     ax.grid(False)
 
     fig.tight_layout()
@@ -804,10 +725,8 @@ def cluster_scatter_residuals(
     color_map = _build_color_map(merged["cluster_label"])
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
-    method_str = _method_label(selection)
-    ax.set_title(f"Clustering im Residuen-Raum\n({method_str})")
-    ax.set_xlabel("DF_residual (z-standardisiert)")
-    ax.set_ylabel("SF_residual (z-standardisiert)")
+    ax.set_xlabel("Duty Factor Residual (z-standardisiert)")
+    ax.set_ylabel("Norm. Schrittfrequenz Residual (z-standardisiert)")
     ax.grid(True, linewidth=0.4, alpha=0.6)
 
     feat_cols = [c for c in df_features_z.columns if c != "Subject"]
@@ -869,9 +788,8 @@ def fatigue_cluster_scatter(
 
     ax.axhline(0, color="gray", linewidth=0.6, linestyle="--", alpha=0.5)
     ax.axvline(0, color="gray", linewidth=0.6, linestyle="--", alpha=0.5)
-    ax.set_xlabel(f"{xcol} (z)", fontsize=11)
-    ax.set_ylabel(f"{ycol} (z)", fontsize=11)
-    ax.set_title(f"Fatigue-Cluster\n{method}", fontsize=11, fontweight="bold")
+    ax.set_xlabel(f"{xcol} (z-standardisiert)")
+    ax.set_ylabel(f"{ycol} (z-standardisiert)")
     ax.legend(fontsize=9, framealpha=0.8)
 
     fig.tight_layout()
@@ -931,7 +849,7 @@ def create_all_plots(
 
     if selection["method"] == "hierarchical":
         print("  Plot 6: dendrogram_plot ...")
-        dendrogram_plot(df_features_z, selection, cfg)
+        dendrogram_plot(df_features_z, selection, cfg, labels=labels)
     else:
         print("  Dendrogramm: uebersprungen (nur bei hierarchischem Clustering)")
 

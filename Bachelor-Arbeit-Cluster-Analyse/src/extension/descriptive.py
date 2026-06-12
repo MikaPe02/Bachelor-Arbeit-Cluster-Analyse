@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from itertools import combinations
 
 import numpy as np
 import pandas as pd
@@ -117,97 +116,65 @@ def _plot_fatigue_boxplots(
     df_fatigue: pd.DataFrame,
     fatigue_cols: list[str],
     cluster_ids: list,
-    tukey_records: list[dict],
     method_lbl: str,
     suffix: str,
     cfg,
 ) -> None:
-    cols_present = [c for c in fatigue_cols if c in df_fatigue.columns]
-    n_features = len(cols_present)
-    ncols = 4
-    nrows = (n_features + ncols - 1) // ncols
+    """Speichert jeden Boxplot einzeln in Outputs/Plots/Boxplots/."""
+    import matplotlib.lines as mlines
 
-    # Tukey-Ergebnisse indexieren: {feature: {(g1,g2): (p_adj, reject)}}
-    tukey_idx: dict[str, dict[tuple, tuple]] = {}
-    for tr in tukey_records:
-        feat = tr["Feature"]
-        tukey_idx.setdefault(feat, {})[(str(tr["Cluster_1"]), str(tr["Cluster_2"]))] = (
-            tr["p_adj"], tr["signifikant"]
-        )
+    _BP_RCPARAMS = {
+        "font.size": 11, "axes.labelsize": 11,
+        "xtick.labelsize": 10, "ytick.labelsize": 10,
+        "legend.fontsize": 10,
+    }
+
+    cols_present = [c for c in fatigue_cols if c in df_fatigue.columns]
 
     cluster_str = [str(c) for c in cluster_ids]
     colors = [_PALETTE[i % len(_PALETTE)] for i in range(len(cluster_ids))]
 
-    fig, axes = plt.subplots(nrows, ncols, figsize=(ncols * 3.5, nrows * 4.0))
-    axes_flat = axes.flatten() if n_features > 1 else [axes]
+    # Unterordner
+    box_dir = cfg.OUTPUT_PLOTS_DIR / "Boxplots"
+    box_dir.mkdir(parents=True, exist_ok=True)
 
-    for ax, col in zip(axes_flat, cols_present):
+    for col in cols_present:
+        plt.rcParams.update(_BP_RCPARAMS)
+
         data_per_cluster = [
             df_fatigue.loc[df_fatigue["cluster_label"] == cid, col].dropna().values
             for cid in cluster_ids
         ]
 
+        fig, ax = plt.subplots(figsize=(16 / 2.54, 12 / 2.54))
+
         bp = ax.boxplot(
             data_per_cluster,
             patch_artist=True,
-            widths=0.55,
+            widths=0.5,
             medianprops=dict(color="black", linewidth=1.5),
+            whiskerprops=dict(linewidth=1.0),
+            capprops=dict(linewidth=1.0),
+            flierprops=dict(marker="o", markersize=4, linestyle="none",
+                            markeredgecolor="gray", markerfacecolor="none"),
         )
         for patch, color in zip(bp["boxes"], colors):
             patch.set_facecolor(color)
             patch.set_alpha(0.75)
 
         ax.set_xticks(range(1, len(cluster_ids) + 1))
-        ax.set_xticklabels(cluster_str, fontsize=9)
-        ax.set_title(_FEATURE_LABELS.get(col, col), fontsize=10, fontweight="bold")
-        ax.tick_params(axis="y", labelsize=8)
+        ax.set_xticklabels([str(c) for c in cluster_str], fontsize=10)
+        ax.set_ylabel(_FEATURE_LABELS.get(col, col))
         ax.axhline(0, color="gray", linewidth=0.6, linestyle="--", alpha=0.5)
+        ax.grid(True, linewidth=0.5, alpha=0.5)
 
-        # Signifikanz-Brackets
-        if col in tukey_idx:
-            y_max = max(v.max() for v in data_per_cluster if len(v) > 0)
-            y_range = y_max - min(v.min() for v in data_per_cluster if len(v) > 0)
-            step = y_range * 0.12
 
-            pairs = list(combinations(range(len(cluster_ids)), 2))
-            for k, (i, j) in enumerate(pairs):
-                g1, g2 = cluster_str[i], cluster_str[j]
-                entry = tukey_idx[col].get((g1, g2)) or tukey_idx[col].get((g2, g1))
-                if entry is None:
-                    continue
-                p_adj, reject = entry
-                lbl = _sig_label(p_adj)
-
-                y = y_max + step * (k + 1)
-                x1, x2 = i + 1, j + 1
-                ax.plot([x1, x1, x2, x2], [y - step * 0.2, y, y, y - step * 0.2],
-                        lw=1.0, color="black")
-                color_txt = "black" if reject else "gray"
-                ax.text((x1 + x2) / 2, y + step * 0.05, lbl,
-                        ha="center", va="bottom", fontsize=8, color=color_txt)
-
-            ax.set_ylim(top=y_max + step * (len(pairs) + 1.5))
-
-    # Leere Subplots ausblenden
-    for ax in axes_flat[n_features:]:
-        ax.set_visible(False)
-
-    # Legende
-    handles = [mpatches.Patch(facecolor=colors[i], alpha=0.75, label=f"Cluster {c}")
-               for i, c in enumerate(cluster_str)]
-    fig.legend(handles=handles, loc="lower right", fontsize=9, framealpha=0.8)
-
-    fig.suptitle(
-        f"Fatigue-Features pro Cluster\n{method_lbl}",
-        fontsize=12, fontweight="bold", y=1.01,
-    )
-    fig.tight_layout()
-
-    cfg.OUTPUT_PLOTS_DIR.mkdir(parents=True, exist_ok=True)
-    out = cfg.OUTPUT_PLOTS_DIR / f"fatigue_boxplots{suffix}.png"
-    fig.savefig(out, dpi=cfg.PLOT_DPI, bbox_inches="tight")
-    plt.close(fig)
-    print(f"  -> Boxplot gespeichert: {out}")
+        fig.tight_layout()
+        fname = col.replace(" ", "_").replace("/", "_").replace("Δ", "Delta")
+        out = box_dir / f"boxplot_{fname}{suffix}.png"
+        fig.savefig(out, dpi=cfg.PLOT_DPI, bbox_inches="tight")
+        plt.close(fig)
+        print(f"  -> Boxplot gespeichert: {out}")
 
 
 # ── Inferenzstatistik ────────────────────────────────────────────────────────
@@ -418,6 +385,7 @@ def _test_fatigue_between_clusters(
     cfg,
     df_biomech: pd.DataFrame | None = None,
     biomech_cols: list[str] | None = None,
+    boxplot_cols: list[str] | None = None,
 ) -> None:
     """
     ANOVA + Tukey fuer Fatigue-Features und optional biomechanische Parameter.
@@ -469,7 +437,8 @@ def _test_fatigue_between_clusters(
 
     # Boxplot nur fuer Fatigue-Features
     fatigue_tukey = [r for r in all_tukey if r["Kategorie"] == "Fatigue"]
-    _plot_fatigue_boxplots(df_fatigue, fatigue_cols, cluster_ids, fatigue_tukey, method_lbl, suffix, cfg)
+    plot_cols = boxplot_cols if boxplot_cols is not None else fatigue_cols
+    _plot_fatigue_boxplots(df_fatigue, plot_cols, cluster_ids, method_lbl, suffix, cfg)
 
 
 # ── Hauptfunktion ─────────────────────────────────────────────────────────────
@@ -516,6 +485,8 @@ def describe_clusters(
         "DF_start", "DF_end", "Delta_DF", "Slope_DF",
         "SF_start", "SF_end", "Delta_SF", "Slope_SF",
     ]
+    # Nur Ermüdungsparameter für Boxplots (Start/Ende sind Clustering-Variablen)
+    boxplot_cols = ["Delta_DF", "Slope_DF", "Delta_SF", "Slope_SF"]
     df_fatigue: pd.DataFrame | None = None
     if hasattr(cfg, "FATIGUE_FEATURES_CSV") and cfg.FATIGUE_FEATURES_CSV.exists():
         df_fatigue = pd.read_csv(cfg.FATIGUE_FEATURES_CSV)
@@ -581,6 +552,7 @@ def describe_clusters(
         _test_fatigue_between_clusters(
             df_fatigue, fatigue_cols, cluster_ids, method_lbl, suffix, cfg,
             df_biomech=km1, biomech_cols=biomech_cols,
+            boxplot_cols=boxplot_cols,
         )
 
     # Chi-Quadrat: kategoriale Variablen

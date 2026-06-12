@@ -77,7 +77,7 @@ sys.path.append(str(PROJECT_ROOT / "Bachelor-Arbeit-Cluster-Analyse" / "src"))
 **`fatigue/` package** — core pipeline:
 - `io.py` — MAT file loading. Filename is the only source for subject ID and km marker.
 - `features.py` — computes DF, SF [Hz], SF_norm. `StepFrequency` in MAT files is INT32_MAX (invalid); always recompute from ContactTimes/FlightTimes via `compute_step_frequency()`. Contains `estimate_leg_length(body_height_m)` using De Leva factor 0.53.
-- `fatigue_metrics.py` — builds per-subject features: `Delta` (last − first) and `Slope` (linear regression) for DF and SF_norm. Entry point: `build_fatigue_feature_table(df_dual_axis)`. Output columns: `DF_start`, `DF_end`, `Delta_DF`, `Slope_DF`, `SF_start`, `SF_end`, `Delta_SF`, `Slope_SF`. **Saved to CSV, not used as clustering input.**
+- `fatigue_metrics.py` — builds per-subject features: `Delta` (km 10 − km 1) and `Slope` (linear regression over km 1–10) for DF and SF_norm. Data contains only integer km markers (km 1, 2, ..., 10). Entry point: `build_fatigue_feature_table(df_dual_axis)`. Output columns: `DF_start` (km 1), `DF_end` (km 10), `Delta_DF`, `Slope_DF`, `SF_start` (km 1), `SF_end` (km 10), `Delta_SF`, `Slope_SF`. **Saved to CSV, not used as clustering input.**
 - `preprocessing.py` — `z_transform(df_features)` (StandardScaler on all non-Subject columns), `sanity_check(df)` (range check per subject).
 - `speed_correction.py` — speed-based residual correction. `compute_speed_residuals_km1(df_all)`: filters km==1.0, fits LinearRegression for DF ~ speed_ms and SF_norm ~ speed_ms, returns `df_km1` with `DF_residual`/`SF_residual` columns and a `models` dict. `save_models(models, path)` / `load_models(path)` via pickle. Aborts if `speed_ms` column missing.
 - `clustering_eval.py` — k-Means, hierarchical (ward/complete/average/single), HDBSCAN. Entry points: `run_clustering_comparison(df_style_z, cfg)`, `run_final_clustering(df_style_z, selection, random_state)`, `add_best_flag(df_eval)`. Best-k selection via rank aggregation over Silhouette, Davies-Bouldin, Calinski-Harabasz. **Input is always 2-feature style matrix, z-transformed.**
@@ -126,7 +126,7 @@ Input/subjects.csv                      [Subject, leg_length_m, body_height_m, s
         |
         v
 main.py
-  Step 2: fatigue_metrics  →  Delta/Slope per subject (saved only)
+  Step 2: fatigue_metrics  →  Delta (km10−km1) / Slope (km1–10) per subject (saved only)
   Step 3: user chooses     →  Residuen (DF_residual, SF_residual) ODER Rohdaten (DF, SF_norm)
   Step 4: z_transform      →  2-feature style matrix
   Step 5: clustering       →  on chosen features at km 1.0
