@@ -179,6 +179,156 @@ def _plot_fatigue_boxplots(
 
 # ── Inferenzstatistik ────────────────────────────────────────────────────────
 
+def _check_assumptions(
+    df_data: pd.DataFrame,
+    cols: list[str],
+    cluster_ids: list,
+    suffix: str,
+    cfg,
+) -> tuple[dict[str, str], list[dict]]:
+    """
+    Prueft Normalverteilung (Shapiro-Wilk) und Varianzhomogenitaet (Levene).
+    Erstellt QQ-Plots pro Variable. Gibt empfohlene Testmethode pro Variable zurueck.
+
+    Returns
+    -------
+    method_per_col : dict col -> "anova" | "welch" | "kruskal"
+    assumption_records : list of dicts fuer CSV-Export
+    """
+    from scipy.stats import shapiro, levene
+
+    box_dir = cfg.OUTPUT_PLOTS_DIR / "Boxplots"
+    box_dir.mkdir(parents=True, exist_ok=True)
+
+    _BP_RCPARAMS = {
+        "font.size": 11, "axes.labelsize": 11,
+        "xtick.labelsize": 10, "ytick.labelsize": 10,
+    }
+
+    FEATURE_LABELS = {
+        "Delta_DF": "Delta DF", "Slope_DF": "Slope DF",
+        "Delta_SF": "Delta SF_norm", "Slope_SF": "Slope SF_norm",
+        "DF": "Duty Factor", "SF_norm": "SF_norm",
+        "speed_ms": "Speed (m/s)", "body_height_m": "Koerpergroesse (m)",
+        "weight_kg": "Gewicht (kg)", "leg_length_m": "Beinlaenge (m)",
+    }
+
+    print("\n=== Voraussetzungspruefung ===")
+    col_w = {"Feature": 24, "Cluster": 12, "W": 8, "p_sw": 10, "Normal": 8}
+    header = (
+        f"  {'Feature':<{col_w['Feature']}}"
+        f"{'Cluster':<{col_w['Cluster']}}"
+        f"{'W':>{col_w['W']}}"
+        f"{'p (S-W)':>{col_w['p_sw']}}"
+        f"{'Normal?':>{col_w['Normal']}}"
+    )
+    sep = "  " + "-" * sum(col_w.values())
+    print(sep)
+    print(header)
+    print(sep)
+
+    method_per_col: dict[str, str] = {}
+    assumption_records: list[dict] = []
+
+    for col in cols:
+        if col not in df_data.columns:
+            continue
+
+        groups = [
+            df_data.loc[df_data["cluster_label"] == cid, col].dropna().values
+            for cid in cluster_ids
+        ]
+        valid_groups = [g for g in groups if len(g) >= 3]
+        if len(valid_groups) < 2:
+            method_per_col[col] = "anova"
+            continue
+
+        # Shapiro-Wilk pro Gruppe
+        normality_ok = True
+        for cid, g in zip(cluster_ids, groups):
+            if len(g) < 3:
+                continue
+            w, p_sw = shapiro(g)
+            normal = p_sw >= 0.05
+            if not normal:
+                normality_ok = False
+            print(
+                f"  {col:<{col_w['Feature']}}"
+                f"{str(cid):<{col_w['Cluster']}}"
+                f"{w:>{col_w['W']}.3f}"
+                f"{p_sw:>{col_w['p_sw']}.4f}"
+                f"  {'ja' if normal else 'NEIN'}"
+            )
+            assumption_records.append({
+                "Feature": col, "Cluster": str(cid),
+                "Shapiro_W": round(w, 4), "Shapiro_p": round(p_sw, 4),
+                "Normalverteilung": "ja" if normal else "nein",
+            })
+
+        # Levene-Test
+        lev_stat, lev_p = levene(*valid_groups)
+        homogen = lev_p >= 0.05
+        print(
+            f"  {col:<{col_w['Feature']}}"
+            f"{'Levene':<{col_w['Cluster']}}"
+            f"{lev_stat:>{col_w['W']}.3f}"
+            f"{lev_p:>{col_w['p_sw']}.4f}"
+            f"  {'ja' if homogen else 'NEIN'}"
+        )
+        assumption_records.append({
+            "Feature": col, "Cluster": "Levene",
+            "Shapiro_W": round(lev_stat, 4), "Shapiro_p": round(lev_p, 4),
+            "Normalverteilung": "ja (homogen)" if homogen else "nein (heterogen)",
+        })
+
+        # Methode wählen
+        if normality_ok and homogen:
+            method_per_col[col] = "anova"
+        elif normality_ok and not homogen:
+            method_per_col[col] = "welch"
+        else:
+            method_per_col[col] = "kruskal"
+
+        # QQ-Plot
+        plt.rcParams.update(_BP_RCPARAMS)
+        n_clusters = len([g for g in groups if len(g) >= 3])
+        fig, axes = plt.subplots(1, n_clusters, figsize=(16 / 2.54, 8 / 2.54), squeeze=False)
+        for ax_i, (cid, g) in enumerate(zip(cluster_ids, groups)):
+            if len(g) < 3:
+                continue
+            ax = axes[0][ax_i]
+            scipy_stats.probplot(g, dist="norm", plot=ax)
+            ax.set_title(str(cid), fontsize=10)
+            ax.set_xlabel("Theoretische Quantile", fontsize=10)
+            ax.set_ylabel("Stichprobenquantile" if ax_i == 0 else "", fontsize=10)
+            ax.get_lines()[0].set(markersize=4, alpha=0.7)
+            ax.get_lines()[1].set(color="#EE6677", linewidth=1.2)
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+            ax.grid(True, linewidth=0.5, alpha=0.5)
+
+        label = FEATURE_LABELS.get(col, col)
+        fig.suptitle(f"QQ-Plot: {label}", fontsize=11, y=1.02)
+        fig.tight_layout()
+        fname = col.replace(" ", "_")
+        out = box_dir / f"qqplot_{fname}{suffix}.png"
+        fig.savefig(out, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        print(f"    QQ-Plot -> {out}")
+
+    print(sep)
+    print("  Methode: normal+homogen -> ANOVA | normal+heterogen -> Welch | nicht-normal -> Kruskal-Wallis")
+
+    # CSV speichern
+    if assumption_records:
+        cfg.OUTPUT_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        out_csv = cfg.OUTPUT_DATA_DIR / f"assumption_check{suffix}.csv"
+        pd.DataFrame(assumption_records).to_csv(out_csv, index=False)
+        print(f"  -> Voraussetzungen gespeichert: {out_csv}")
+
+    return method_per_col, assumption_records
+
+
 def _run_anova_block(
     df_data: pd.DataFrame,
     cols: list[str],
@@ -186,6 +336,7 @@ def _run_anova_block(
     method_lbl: str,
     title: str,
     category: str,
+    method_per_col: dict[str, str] | None = None,
 ) -> tuple[list[dict], list[dict]]:
     """
     Fuehrt ANOVA + Tukey fuer alle cols durch.
@@ -196,7 +347,7 @@ def _run_anova_block(
         f"  {'Feature':<{col_w['Feature']}}"
         f"{'F':>{col_w['F']}}"
         f"{'p':>{col_w['p']}}"
-        f"{'η²':>{col_w['eta2']}}"
+        f"{'eta2':>{col_w['eta2']}}"
         f"{'sig':>{col_w['sig']}}"
     )
     sep = "  " + "-" * sum(col_w.values())
@@ -221,7 +372,35 @@ def _run_anova_block(
         if len(valid) < 2:
             continue
 
-        f_val, p_val = scipy_stats.f_oneway(*valid)
+        # Testmethode je nach Voraussetzungen
+        test_method = (method_per_col or {}).get(col, "anova")
+        if test_method == "welch":
+            # Welch-ANOVA (scipy f_oneway benutzt immer Welch wenn equal_var=False nicht verfuegbar)
+            # Nutze pingouin falls verfuegbar, sonst klassische ANOVA mit Hinweis
+            try:
+                import pingouin as pg
+                import warnings
+                all_vals_list = []
+                all_grp_list  = []
+                for cid, g in zip(cluster_ids, groups):
+                    all_vals_list.extend(g)
+                    all_grp_list.extend([str(cid)] * len(g))
+                df_pg = pd.DataFrame({"val": all_vals_list, "grp": all_grp_list})
+                res = pg.welch_anova(data=df_pg, dv="val", between="grp")
+                f_val = float(res["F"].iloc[0])
+                p_val = float(res["p-unc"].iloc[0])
+                test_label = "Welch-ANOVA"
+            except ImportError:
+                f_val, p_val = scipy_stats.f_oneway(*valid)
+                test_label = "ANOVA (Welch n.v.)"
+        elif test_method == "kruskal":
+            h_val, p_val = scipy_stats.kruskal(*valid)
+            f_val = h_val
+            test_label = "Kruskal-Wallis H"
+        else:
+            f_val, p_val = scipy_stats.f_oneway(*valid)
+            test_label = "ANOVA"
+
         sig = "***" if p_val < 0.001 else ("**" if p_val < 0.01 else ("*" if p_val < 0.05 else "n.s."))
 
         # η² = SS_between / SS_total
@@ -245,6 +424,7 @@ def _run_anova_block(
         anova_records.append({
             "Kategorie": category,
             "Verfahren": method_lbl,
+            "Test": test_label,
             "Feature": col,
             "F": round(f_val, 4),
             "p": round(p_val, 4),
@@ -392,14 +572,48 @@ def _test_fatigue_between_clusters(
     Alle Ergebnisse in einer CSV.
     """
     print("\n=== Inferenzstatistik: ANOVA + Tukey HSD ===")
-    # Block 1: Biomechanische Parameter
     all_anova: list[dict] = []
     all_tukey: list[dict] = []
 
+    # Voraussetzungspruefung fuer alle relevanten Variablen
+    all_test_cols = list(fatigue_cols)
+    if df_biomech is not None and biomech_cols:
+        all_test_cols = list(biomech_cols) + all_test_cols
+
+    # Kombinierter DataFrame fuer Voraussetzungspruefung
+    df_combined = df_fatigue.copy()
+    if df_biomech is not None:
+        extra_cols = [c for c in (biomech_cols or []) if c not in df_combined.columns]
+        if extra_cols:
+            df_combined = df_combined.merge(
+                df_biomech[["Subject", "cluster_label"] + extra_cols].drop_duplicates("Subject"),
+                on=["Subject", "cluster_label"], how="left"
+            )
+
+    _, _ = _check_assumptions(df_combined, all_test_cols, cluster_ids, suffix, cfg)
+
+    # Testmethode interaktiv waehlen — gilt einheitlich fuer alle Variablen
+    print("\n  Testmethode waehlen (gilt fuer alle Variablen):")
+    print("  [1] ANOVA            (parametrisch, Normalverteilung + Varianzhomogenitaet vorausgesetzt)")
+    print("  [2] Welch-ANOVA      (parametrisch, robust bei ungleichen Varianzen)")
+    print("  [3] Kruskal-Wallis   (nicht-parametrisch, keine Verteilungsannahme)")
+    while True:
+        choice = input("  Auswahl [1/2/3]: ").strip()
+        if choice in ("1", "2", "3"):
+            break
+        print("  Bitte 1, 2 oder 3 eingeben.")
+
+    global_method = {"1": "anova", "2": "welch", "3": "kruskal"}[choice]
+    method_label  = {"1": "ANOVA", "2": "Welch-ANOVA", "3": "Kruskal-Wallis"}[choice]
+    print(f"  -> Gewaehlte Methode: {method_label} (fuer alle Variablen)")
+    method_per_col = {col: global_method for col in all_test_cols}
+
+    # Block 1: Biomechanische Parameter
     if df_biomech is not None and biomech_cols:
         a, t = _run_anova_block(
             df_biomech, biomech_cols, cluster_ids, method_lbl,
-            "=== ANOVA: Biomechanische Parameter & Anthropometrie ===", "Biomechanik"
+            "=== Inferenzstatistik: Biomechanische Parameter & Anthropometrie ===", "Biomechanik",
+            method_per_col=method_per_col,
         )
         all_anova.extend(a)
         all_tukey.extend(t)
@@ -407,7 +621,8 @@ def _test_fatigue_between_clusters(
     # Block 2: Fatigue-Features
     a, t = _run_anova_block(
         df_fatigue, fatigue_cols, cluster_ids, method_lbl,
-        "=== ANOVA: Fatigue-Features ===", "Fatigue"
+        "=== Inferenzstatistik: Fatigue-Features ===", "Fatigue",
+        method_per_col=method_per_col,
     )
     all_anova.extend(a)
     all_tukey.extend(t)
@@ -435,10 +650,13 @@ def _test_fatigue_between_clusters(
     else:
         print("  -> Kein signifikantes ANOVA-Ergebnis: kein Tukey post-hoc berechnet.")
 
-    # Boxplot nur fuer Fatigue-Features
-    fatigue_tukey = [r for r in all_tukey if r["Kategorie"] == "Fatigue"]
     plot_cols = boxplot_cols if boxplot_cols is not None else fatigue_cols
-    _plot_fatigue_boxplots(df_fatigue, plot_cols, cluster_ids, method_lbl, suffix, cfg)
+    # Datenquelle fuer Boxplots: df_biomech wenn Boxplot-Spalten dort liegen (z.B. DF, SF_norm)
+    if df_biomech is not None and all(c in df_biomech.columns for c in plot_cols):
+        df_box = df_biomech
+    else:
+        df_box = df_fatigue
+    _plot_fatigue_boxplots(df_box, plot_cols, cluster_ids, method_lbl, suffix, cfg)
 
 
 # ── Hauptfunktion ─────────────────────────────────────────────────────────────
@@ -558,6 +776,124 @@ def describe_clusters(
     # Chi-Quadrat: kategoriale Variablen
     cat_cols = ["sex", "dominant_leg", "age"]
     if cfg.SUBJECTS_CSV.exists():
+        subjects_cat = pd.read_csv(cfg.SUBJECTS_CSV)
+        available_cat = [c for c in cat_cols if c in subjects_cat.columns]
+        if available_cat:
+            df_cat = km1[["Subject", "cluster_label"]].drop_duplicates()
+            df_cat = df_cat.merge(subjects_cat[["Subject"] + available_cat], on="Subject", how="left")
+            _test_categorical_between_clusters(df_cat, available_cat, cluster_ids, method_lbl, suffix, cfg)
+
+
+def describe_fatigue_clusters(
+    df_features_raw: pd.DataFrame,
+    labels: pd.Series,
+    selection: dict,
+    cfg,
+    df_long: pd.DataFrame | None = None,
+) -> None:
+    """
+    Deskriptive Statistik + ANOVA + Boxplots fuer das Fatigue-Clustering.
+    Identische Analyse wie describe_clusters, aber UV = Fatigue-Cluster.
+
+    Parameters
+    ----------
+    df_features_raw : breites DataFrame mit Spalten Subject, Delta_DF, Slope_DF, Delta_SF, Slope_SF
+    labels          : pd.Series mit Index=Subject, Values=Cluster-Label
+    selection       : dict mit 'method', 'linkage', 'k'
+    cfg             : config-Modul
+    df_long         : langer Datensatz (Subject x km) fuer DF_start, SF_start, Speed, Anthropometrie
+    """
+    print("\n=== Deskriptive Statistik: Fatigue-Cluster ===")
+
+    method_lbl = _method_label(selection)
+    suffix     = _file_suffix(selection)
+
+    fatigue_cols = ["Delta_DF", "Slope_DF", "Delta_SF", "Slope_SF"]
+    cols_present = [c for c in fatigue_cols if c in df_features_raw.columns]
+
+    df_labels = labels.reset_index()
+    df_labels.columns = ["Subject", "cluster_label"]
+    df_f = df_features_raw.merge(df_labels, on="Subject", how="left")
+
+    # km 1.0 Startbedingungen aus langem Datensatz
+    km1: pd.DataFrame | None = None
+    if df_long is not None:
+        km1 = df_long[np.abs(df_long["km"] - 1.0) <= 1e-6].copy()
+        km1 = km1.merge(df_labels, on="Subject", how="left")
+        # Anthropometrie mergen
+        meta_cols = ["Subject", "body_height_m", "weight_kg", "leg_length_m", "speed_ms", "SF_hz_km1"]
+        if cfg.SUBJECTS_CSV.exists():
+            subjects = pd.read_csv(cfg.SUBJECTS_CSV)
+            available = [c for c in meta_cols if c in subjects.columns]
+            km1 = km1.merge(subjects[available], on="Subject", how="left")
+
+    cluster_ids = sorted(df_f["cluster_label"].dropna().unique(), key=str)
+
+    print(f"\n  Verfahren : {method_lbl}")
+    print(f"  Cluster   : {cluster_ids}")
+
+    all_records: list[dict] = []
+
+    for cid in cluster_ids:
+        sub_f = df_f[df_f["cluster_label"] == cid]
+        n     = len(sub_f)
+
+        vars_: list[tuple[str, pd.Series]] = []
+
+        # Startbedingungen (AV — nicht zirkulär)
+        if km1 is not None:
+            sub_km1 = km1[km1["cluster_label"] == cid]
+            vars_.append(("DF Start (km 1)", sub_km1["DF"]))
+            vars_.append(("SF_norm Start (km 1)", sub_km1["SF_norm"]))
+            if "speed_ms" in sub_km1.columns:
+                vars_.append(("Speed [m/s]", sub_km1["speed_ms"]))
+            if "body_height_m" in sub_km1.columns:
+                vars_.append(("Koerpergroesse [m]", sub_km1["body_height_m"]))
+            if "weight_kg" in sub_km1.columns:
+                vars_.append(("Gewicht [kg]", sub_km1["weight_kg"]))
+            if "leg_length_m" in sub_km1.columns:
+                vars_.append(("Beinlaenge [m]", sub_km1["leg_length_m"]))
+
+        # Fatigue-Features (zirkulaer — Sanity Check)
+        for col in cols_present:
+            vars_.append((col, sub_f[col]))
+
+        rows = [(lbl, _stats_row(s)) for lbl, s in vars_]
+        _print_table(f"  Fatigue-Cluster {cid}  (n = {n}):", rows)
+
+        row_wide: dict = {"Verfahren": method_lbl, "Cluster": str(cid), "N": n}
+        for lbl, stats in rows:
+            prefix = lbl.replace(" ", "_").replace("[", "").replace("]", "").replace("/", "")
+            for kennwert in ("MW", "SD", "Min", "Max"):
+                row_wide[f"{prefix}_{kennwert}"] = stats[kennwert]
+        all_records.append(row_wide)
+
+    cfg.OUTPUT_DATA_DIR.mkdir(parents=True, exist_ok=True)
+    out = cfg.OUTPUT_DATA_DIR / f"descriptive_stats_fatigue_clusters{suffix}.csv"
+    pd.DataFrame(all_records).to_csv(out, index=False)
+    print(f"\n  -> Gespeichert: {out}")
+
+    # ANOVA Block 1: Startbedingungen + Anthropometrie (inhaltlich relevante AV)
+    biomech_cols: list[str] | None = None
+    if km1 is not None:
+        biomech_cols = ["DF", "SF_norm"]
+        for col in ("speed_ms", "body_height_m", "weight_kg", "leg_length_m"):
+            if col in km1.columns:
+                biomech_cols.append(col)
+
+    # Boxplots: Startbedingungen (inhaltlich relevant) statt Delta/Slope (zirkulaer)
+    boxplot_cols_fatigue = ["DF", "SF_norm"]
+
+    # ANOVA Block 2: Fatigue-Features (zirkulaer — Sanity Check)
+    _test_fatigue_between_clusters(
+        df_f, cols_present, cluster_ids, method_lbl, suffix, cfg,
+        df_biomech=km1, biomech_cols=biomech_cols,
+        boxplot_cols=boxplot_cols_fatigue if km1 is not None else cols_present,
+    )
+
+    # Chi-Quadrat: kategoriale Variablen
+    cat_cols = ["sex", "dominant_leg"]
+    if cfg.SUBJECTS_CSV.exists() and km1 is not None:
         subjects_cat = pd.read_csv(cfg.SUBJECTS_CSV)
         available_cat = [c for c in cat_cols if c in subjects_cat.columns]
         if available_cat:

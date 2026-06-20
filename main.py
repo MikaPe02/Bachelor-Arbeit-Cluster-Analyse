@@ -28,8 +28,8 @@ from fatigue.preprocessing import z_transform, sanity_check
 from fatigue.clustering_eval import run_clustering_comparison, run_final_clustering
 from fatigue.clustering_ui import show_metrics_summary, select_clustering
 from fatigue.speed_correction import compute_speed_residuals_km1, save_models
-from extension.viz_plots import elbow_plot, create_all_plots, fatigue_cluster_scatter
-from extension.descriptive import describe_clusters, compare_style_and_fatigue_clusters
+from extension.viz_plots import elbow_plot, create_all_plots, fatigue_cluster_scatter, metrics_table, dendrogram_plot, dual_axis_snapshot, dual_axis_arrows
+from extension.descriptive import describe_clusters, compare_style_and_fatigue_clusters, describe_fatigue_clusters
 # ─────────────────────────────────────────────────────────────────────────────
 
 
@@ -176,6 +176,7 @@ def step6_save_results(
 
 
 def step_fatigue_clustering(
+    df: pd.DataFrame,
     df_features_raw: pd.DataFrame,
     style_labels: pd.Series,
     style_selection: dict,
@@ -232,8 +233,27 @@ def step_fatigue_clustering(
     df_f_labels.to_csv(config.FATIGUE_CLUSTER_LABELS_CSV, index=False)
     print(f"  -> Fatigue-Cluster-Labels: {config.FATIGUE_CLUSTER_LABELS_CSV}")
 
-    # Scatter-Plot
-    fatigue_cluster_scatter(df_f_z, f_labels, f_selection, config.OUTPUT_PLOTS_DIR)
+    # Plots — eigener Unterordner Plots/Fatigue/
+    fatigue_plot_dir = config.OUTPUT_PLOTS_DIR / "Fatigue"
+    fatigue_plot_dir.mkdir(parents=True, exist_ok=True)
+
+    elbow_plot(df_f_results, df_f_z, config, selection=f_selection, out_dir=fatigue_plot_dir)
+    metrics_table(df_f_results, selection=f_selection, out_dir=fatigue_plot_dir)
+    fatigue_cluster_scatter(df_f_z, f_labels, f_selection, fatigue_plot_dir)
+
+    # Dual-Axis Plots mit Fatigue-Cluster-Einfärbung
+    fl = f_labels.reset_index()
+    fl.columns = ["Subject", "cluster_label"]
+    df_f_labels_merged = df.merge(fl, on="Subject", how="left")
+
+    dual_axis_snapshot(df_f_labels_merged, selection=f_selection, out_dir=fatigue_plot_dir)
+    dual_axis_arrows(df_f_labels_merged, cluster_col="cluster_label", selection=f_selection, out_dir=fatigue_plot_dir)
+
+    if f_selection["method"] == "hierarchical":
+        dendrogram_plot(df_f_z, f_selection, config, labels=f_labels, out_dir=fatigue_plot_dir)
+
+    # Deskriptive Statistik + ANOVA + Boxplots fuer Fatigue-Cluster
+    describe_fatigue_clusters(df_features_raw, f_labels, f_selection, config, df_long=df)
 
     # Kreuztabelle: Laufstil-Cluster vs. Fatigue-Cluster
     compare_style_and_fatigue_clusters(
@@ -297,7 +317,7 @@ def main() -> None:
     sanity_check(df)
 
     # Schritt 9: Optionales Fatigue-Clustering
-    step_fatigue_clustering(df_features_raw, labels, selection)
+    step_fatigue_clustering(df, df_features_raw, labels, selection)
 
     print("\n" + "=" * 60)
     print("Pipeline abgeschlossen.")

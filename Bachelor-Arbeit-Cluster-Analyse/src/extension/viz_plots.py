@@ -518,6 +518,7 @@ def elbow_plot(
     df_features_z: pd.DataFrame,
     cfg,
     selection=None,
+    out_dir=None,
 ) -> None:
     """
     Plot 5: Elbow-Plot – normierte Innerhalb-Cluster-Streuung gegen k.
@@ -574,8 +575,9 @@ def elbow_plot(
     fig.tight_layout()
     fig.subplots_adjust(left=0.12)
 
-    cfg.OUTPUT_PLOTS_DIR.mkdir(parents=True, exist_ok=True)
-    out = cfg.OUTPUT_PLOTS_DIR / f"elbow_plot{_file_suffix(selection)}.png"
+    plot_dir = Path(out_dir) if out_dir is not None else cfg.OUTPUT_PLOTS_DIR
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    out = plot_dir / f"elbow_plot{_file_suffix(selection)}.png"
     fig.savefig(out, dpi=DPI, bbox_inches="tight")
     plt.close(fig)
     print(f"  Elbow-Plot gespeichert -> {out}")
@@ -588,6 +590,7 @@ def dendrogram_plot(
     selection: dict,
     cfg,
     labels: "pd.Series | None" = None,
+    out_dir=None,
 ) -> None:
     """
     Plot 6: Dendrogramm des hierarchischen Clusterings.
@@ -697,8 +700,9 @@ def dendrogram_plot(
 
     fig.tight_layout()
 
-    cfg.OUTPUT_PLOTS_DIR.mkdir(parents=True, exist_ok=True)
-    out = cfg.OUTPUT_PLOTS_DIR / f"dendrogram{_file_suffix(selection)}.png"
+    plot_dir = Path(out_dir) if out_dir is not None else cfg.OUTPUT_PLOTS_DIR
+    plot_dir.mkdir(parents=True, exist_ok=True)
+    out = plot_dir / f"dendrogram{_file_suffix(selection)}.png"
     fig.savefig(out, dpi=DPI, bbox_inches="tight")
     plt.close(fig)
     print(f"  Dendrogramm gespeichert -> {out}")
