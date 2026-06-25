@@ -97,34 +97,51 @@ def decide(r_df: float, r_sf: float) -> tuple[str, str, str]:
            f"Moderate Korrelation (max |r| = {max_r:.3f}, 0.4 <= r < 0.5) -> Beide Optionen vertretbar"
 
 
+_RCPARAMS = {
+    "font.size": 11, "axes.labelsize": 11,
+    "xtick.labelsize": 10, "ytick.labelsize": 10,
+    "legend.fontsize": 10,
+}
+
+_PLOTS = [
+    ("DF",     "#4477AA", "Duty Factor [–]",              "speed_correlation_DF.png"),
+    ("SF_norm","#228833", "Normierte Schrittfrequenz [–]", "speed_correlation_SF_norm.png"),
+]
+
+
 def make_plot(df, r_df, p_df, r2_df, b0_df, b1_df,
-                  r_sf, p_sf, r2_sf, b0_sf, b1_sf, decision_text):
-    sns.set_style("whitegrid")
-    fig, axes = plt.subplots(1, 2, figsize=(12, 5))
-    fig.suptitle(f"METHODENENTSCHEIDUNG: {decision_text}", fontsize=12, fontweight="bold", y=1.02)
+              r_sf, p_sf, r2_sf, b0_sf, b1_sf, decision_text) -> list[Path]:
+    plt.rcParams.update(_RCPARAMS)
+    OUTPUT_PLOTS.mkdir(parents=True, exist_ok=True)
 
     x_range = np.linspace(df["speed_kmh"].min(), df["speed_kmh"].max(), 100)
+    saved = []
 
-    for ax, y_col, color, r, p, r2, b0, b1 in [
-        (axes[0], "DF",     "#1f77b4", r_df, p_df, r2_df, b0_df, b1_df),
-        (axes[1], "SF_norm","#2ca02c", r_sf, p_sf, r2_sf, b0_sf, b1_sf),
-    ]:
-        ax.scatter(df["speed_kmh"], df[y_col], color=color, alpha=0.6, s=60, zorder=3)
-        ax.plot(x_range, b0 + b1 * x_range, color="red", linewidth=1.8, label="Regression")
-        ax.set_xlabel("Speed [km/h]", fontsize=11)
-        ax.set_ylabel(y_col, fontsize=11)
-        ax.set_title(
-            f"Speed vs. {y_col}\nr = {r:.3f}, p = {p:.4f} {_sig_stars(p)}, R² = {r2:.3f}",
-            fontsize=11,
-        )
-        ax.legend(fontsize=9)
+    for (y_col, color, ylabel, fname), (r, p, r2, b0, b1) in zip(
+        _PLOTS,
+        [(r_df, p_df, r2_df, b0_df, b1_df), (r_sf, p_sf, r2_sf, b0_sf, b1_sf)],
+    ):
+        fig, ax = plt.subplots(figsize=(16 / 2.54, 13 / 2.54))
 
-    plt.tight_layout()
-    OUTPUT_PLOTS.mkdir(parents=True, exist_ok=True)
-    out = OUTPUT_PLOTS / "speed_correlation.png"
-    fig.savefig(out, dpi=300, bbox_inches="tight")
-    plt.close(fig)
-    return out
+        ax.scatter(df["speed_kmh"], df[y_col], color=color, alpha=0.65, s=40, zorder=3)
+        ax.plot(x_range, b0 + b1 * x_range, color="red", linewidth=1.5,
+                label=f"Regression (r = {r:.3f}, R² = {r2:.3f}, p < .001)")
+
+        ax.set_xlabel("Laufgeschwindigkeit [km/h]")
+        ax.set_ylabel(ylabel)
+        ax.legend(frameon=True, fontsize=10)
+        ax.grid(True, linewidth=0.5, alpha=0.5)
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+
+        fig.tight_layout()
+        out = OUTPUT_PLOTS / fname
+        fig.savefig(out, dpi=300, bbox_inches="tight")
+        plt.close(fig)
+        saved.append(out)
+        print(f"  -> Gespeichert: {out}")
+
+    return saved
 
 
 def save_results(r_df, p_df, r2_df, r_sf, p_sf, r2_sf, code, decision_text, reason):
@@ -186,14 +203,15 @@ def main():
     else:
         print("    Grenzfall → Entscheidung mit Betreuer absprechen.")
 
-    plot_path = make_plot(df, r_df, p_df, r2_df, b0_df, b1_df,
-                              r_sf, p_sf, r2_sf, b0_sf, b1_sf, decision_text)
+    make_plot(df, r_df, p_df, r2_df, b0_df, b1_df,
+              r_sf, p_sf, r2_sf, b0_sf, b1_sf, decision_text)
     csv_path, txt_path = save_results(r_df, p_df, r2_df, r_sf, p_sf, r2_sf,
                                       code, decision_text, reason)
 
     print("\n" + "=" * 70)
     print("  Ergebnisse gespeichert:")
-    print(f"    Outputs/Plots/speed_correlation.png")
+    print(f"    Outputs/Plots/speed_correlation_DF.png")
+    print(f"    Outputs/Plots/speed_correlation_SF_norm.png")
     print(f"    Outputs/Data/speed_correlation_summary.csv")
     print(f"    Outputs/Data/method_decision.txt")
     print("=" * 70)

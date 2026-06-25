@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+from itertools import combinations
 from pathlib import Path
 
 import numpy as np
@@ -19,6 +20,17 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 from scipy import stats as scipy_stats
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
+
+
+def _cohens_d(a: np.ndarray, b: np.ndarray) -> float:
+    """Pooled-SD Cohen's d fuer zwei unabhaengige Gruppen."""
+    na, nb = len(a), len(b)
+    if na < 2 or nb < 2:
+        return float("nan")
+    pooled_sd = np.sqrt(((na - 1) * a.std(ddof=1) ** 2 + (nb - 1) * b.std(ddof=1) ** 2) / (na + nb - 2))
+    if pooled_sd == 0:
+        return float("nan")
+    return float((a.mean() - b.mean()) / pooled_sd)
 
 
 # ── Hilfsfunktionen ───────────────────────────────────────────────────────────
@@ -91,14 +103,21 @@ def _print_table(title: str, rows: list[tuple[str, dict]]) -> None:
 _PALETTE = ["#4477AA", "#EE6677", "#228833", "#CCBB44", "#66CCEE", "#AA3377", "#BBBBBB"]
 
 _FEATURE_LABELS: dict[str, str] = {
-    "DF_start":  "DF Start",
-    "DF_end":    "DF Ende",
-    "Delta_DF":  "Δ DF",
-    "Slope_DF":  "Slope DF",
-    "SF_start":  "SF_norm Start",
-    "SF_end":    "SF_norm Ende",
-    "Delta_SF":  "Δ SF_norm",
-    "Slope_SF":  "Slope SF_norm",
+    "DF_start":       "DF Start [–]",
+    "DF_end":         "DF Ende [–]",
+    "Delta_DF":       "Δ DF [–]",
+    "Slope_DF":       "Slope DF [–/km]",
+    "Slope_DF_early": "Slope DF km 1–5 [–/km]",
+    "Slope_DF_late":  "Slope DF km 6–10 [–/km]",
+    "SF_start":       "SF_norm Start [–]",
+    "SF_end":         "SF_norm Ende [–]",
+    "Delta_SF":       "Δ SF_norm [–]",
+    "Slope_SF":       "Slope SF_norm [–/km]",
+    "Slope_SF_early": "Slope SF_norm km 1–5 [–/km]",
+    "Slope_SF_late":  "Slope SF_norm km 6–10 [–/km]",
+    "speed_ms":       "Laufgeschwindigkeit [m/s]",
+    "DF":             "Duty Factor [–]",
+    "SF_norm":        "Normierte Schrittfrequenz [–]",
 }
 
 
@@ -165,7 +184,16 @@ def _plot_fatigue_boxplots(
         ax.set_xticks(range(1, len(cluster_ids) + 1))
         ax.set_xticklabels([str(c) for c in cluster_str], fontsize=10)
         ax.set_ylabel(_FEATURE_LABELS.get(col, col))
-        ax.axhline(0, color="gray", linewidth=0.6, linestyle="--", alpha=0.5)
+
+        # Nulllinie nur zeigen wenn 0 im sichtbaren Bereich liegt
+        all_vals = np.concatenate([v for v in data_per_cluster if len(v) > 0])
+        if all_vals.min() < 0 < all_vals.max():
+            ax.axhline(0, color="gray", linewidth=0.6, linestyle="--", alpha=0.5)
+        else:
+            # Y-Achse auf Datenbereich begrenzen mit etwas Puffer
+            margin = (all_vals.max() - all_vals.min()) * 0.05
+            ax.set_ylim(all_vals.min() - margin, all_vals.max() + margin)
+
         ax.grid(True, linewidth=0.5, alpha=0.5)
 
 
@@ -421,7 +449,18 @@ def _run_anova_block(
             f"  {sig}"
         )
 
-        anova_records.append({
+        # Cohen's d fuer alle Cluster-Paare (immer, unabhaengig von Signifikanz)
+        group_map = {
+            cid: df_data.loc[df_data["cluster_label"] == cid, col].dropna().values
+            for cid in cluster_ids
+        }
+        cohens_d_vals: dict[str, float] = {}
+        for c1, c2 in combinations(cluster_ids, 2):
+            pair_key = f"{c1}_vs_{c2}".replace(" ", "_")
+            d = _cohens_d(group_map[c1], group_map[c2])
+            cohens_d_vals[f"{pair_key}_cohens_d"] = round(d, 3) if not np.isnan(d) else float("nan")
+
+        rec: dict = {
             "Kategorie": category,
             "Verfahren": method_lbl,
             "Test": test_label,
@@ -430,7 +469,9 @@ def _run_anova_block(
             "p": round(p_val, 4),
             "eta2": eta2,
             "sig": sig,
-        })
+        }
+        rec.update(cohens_d_vals)
+        anova_records.append(rec)
 
         if p_val < 0.05:
             vals       = df_data[col].dropna()
@@ -491,6 +532,15 @@ def _test_categorical_between_clusters(
     cfg,
 ) -> None:
     """Chi-Quadrat-Test fuer kategoriale Variablen zwischen Clustern."""
+    # Kategoriale Werte normalisieren (Gross-/Kleinschreibung vereinheitlichen)
+    df = df.copy()
+    for col in cat_cols:
+        if col in df.columns:
+            try:
+                df[col] = df[col].astype(str).str.strip().str.lower()
+            except Exception:
+                pass
+
     available = [c for c in cat_cols if c in df.columns]
     if not available:
         return
@@ -651,11 +701,21 @@ def _test_fatigue_between_clusters(
         print("  -> Kein signifikantes ANOVA-Ergebnis: kein Tukey post-hoc berechnet.")
 
     plot_cols = boxplot_cols if boxplot_cols is not None else fatigue_cols
-    # Datenquelle fuer Boxplots: df_biomech wenn Boxplot-Spalten dort liegen (z.B. DF, SF_norm)
-    if df_biomech is not None and all(c in df_biomech.columns for c in plot_cols):
-        df_box = df_biomech
-    else:
-        df_box = df_fatigue
+    # Kombinierter DataFrame fuer Boxplots: Spalten aus beiden Quellen zusammenfuehren
+    # Biomech-Spalten (DF, SF_norm, speed_ms, Anthropometrie) kommen immer aus df_biomech,
+    # da fatigue_features.csv diese nicht enthaelt.
+    df_box = df_fatigue.copy()
+    if df_biomech is not None:
+        biomech_source_cols = ["DF", "SF_norm", "speed_ms", "body_height_m", "weight_kg", "leg_length_m"]
+        extra = [c for c in plot_cols if c in df_biomech.columns and c in biomech_source_cols]
+        if extra:
+            # drop_duplicates auf Subject, dann merge ohne cluster_label um Konflikte zu vermeiden
+            src = df_biomech[["Subject"] + extra].drop_duplicates("Subject")
+            # Vorhandene Biomech-Spalten im df_box zuerst entfernen um Suffix-Konflikte zu vermeiden
+            drop_existing = [c for c in extra if c in df_box.columns]
+            if drop_existing:
+                df_box = df_box.drop(columns=drop_existing)
+            df_box = df_box.merge(src, on="Subject", how="left")
     _plot_fatigue_boxplots(df_box, plot_cols, cluster_ids, method_lbl, suffix, cfg)
 
 
@@ -690,21 +750,28 @@ def describe_clusters(
     km1 = km1.merge(df_labels, on="Subject", how="left")
 
     # Probanden-Metadaten mergen (Körpergröße, Gewicht, Beinlänge, Speed)
+    # speed_ms bereits in km1 vorhanden (aus df) — nur fehlende Spalten aus subjects.csv nachladen
     meta_cols = ["Subject", "body_height_m", "weight_kg", "leg_length_m", "speed_ms", "SF_hz_km1"]
     if cfg.SUBJECTS_CSV.exists():
         subjects = pd.read_csv(cfg.SUBJECTS_CSV)
-        available = [c for c in meta_cols if c in subjects.columns]
-        km1 = km1.merge(subjects[available], on="Subject", how="left")
+        missing_meta = [c for c in meta_cols if c not in km1.columns]
+        available = [c for c in ["Subject"] + missing_meta if c in subjects.columns]
+        if len(available) > 1:
+            km1 = km1.merge(subjects[available], on="Subject", how="left")
 
     cluster_ids = sorted(km1["cluster_label"].dropna().unique(), key=str)
 
     # Fatigue-Features laden und mit Cluster-Labels mergen
     fatigue_cols = [
-        "DF_start", "DF_end", "Delta_DF", "Slope_DF",
-        "SF_start", "SF_end", "Delta_SF", "Slope_SF",
+        "DF_start", "DF_end", "Delta_DF", "Slope_DF", "Slope_DF_early", "Slope_DF_late",
+        "SF_start", "SF_end", "Delta_SF", "Slope_SF", "Slope_SF_early", "Slope_SF_late",
     ]
-    # Nur Ermüdungsparameter für Boxplots (Start/Ende sind Clustering-Variablen)
-    boxplot_cols = ["Delta_DF", "Slope_DF", "Delta_SF", "Slope_SF"]
+    # Boxplots: Ermüdungsparameter + Phasen-Slopes + Speed
+    boxplot_cols = [
+        "Delta_DF", "Slope_DF", "Slope_DF_early", "Slope_DF_late",
+        "Delta_SF", "Slope_SF", "Slope_SF_early", "Slope_SF_late",
+        "speed_ms",
+    ]
     df_fatigue: pd.DataFrame | None = None
     if hasattr(cfg, "FATIGUE_FEATURES_CSV") and cfg.FATIGUE_FEATURES_CSV.exists():
         df_fatigue = pd.read_csv(cfg.FATIGUE_FEATURES_CSV)
@@ -808,7 +875,10 @@ def describe_fatigue_clusters(
     method_lbl = _method_label(selection)
     suffix     = _file_suffix(selection)
 
-    fatigue_cols = ["Delta_DF", "Slope_DF", "Delta_SF", "Slope_SF"]
+    fatigue_cols = [
+        "Delta_DF", "Slope_DF", "Slope_DF_early", "Slope_DF_late",
+        "Delta_SF", "Slope_SF", "Slope_SF_early", "Slope_SF_late",
+    ]
     cols_present = [c for c in fatigue_cols if c in df_features_raw.columns]
 
     df_labels = labels.reset_index()
@@ -820,11 +890,11 @@ def describe_fatigue_clusters(
     if df_long is not None:
         km1 = df_long[np.abs(df_long["km"] - 1.0) <= 1e-6].copy()
         km1 = km1.merge(df_labels, on="Subject", how="left")
-        # Anthropometrie mergen
+        # Anthropometrie mergen — nur Spalten die noch nicht in km1 vorhanden sind
         meta_cols = ["Subject", "body_height_m", "weight_kg", "leg_length_m", "speed_ms", "SF_hz_km1"]
         if cfg.SUBJECTS_CSV.exists():
             subjects = pd.read_csv(cfg.SUBJECTS_CSV)
-            available = [c for c in meta_cols if c in subjects.columns]
+            available = [c for c in meta_cols if c in subjects.columns and (c == "Subject" or c not in km1.columns)]
             km1 = km1.merge(subjects[available], on="Subject", how="left")
 
     cluster_ids = sorted(df_f["cluster_label"].dropna().unique(), key=str)
@@ -881,8 +951,12 @@ def describe_fatigue_clusters(
             if col in km1.columns:
                 biomech_cols.append(col)
 
-    # Boxplots: Startbedingungen (inhaltlich relevant) statt Delta/Slope (zirkulaer)
-    boxplot_cols_fatigue = ["DF", "SF_norm"]
+    # Boxplots: Ermüdungsfeatures + Startbedingungen + Speed
+    boxplot_cols_fatigue = [
+        "Delta_DF", "Slope_DF", "Slope_DF_early", "Slope_DF_late",
+        "Delta_SF", "Slope_SF", "Slope_SF_early", "Slope_SF_late",
+        "DF", "SF_norm", "speed_ms",
+    ]
 
     # ANOVA Block 2: Fatigue-Features (zirkulaer — Sanity Check)
     _test_fatigue_between_clusters(

@@ -11,7 +11,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Bachelor's thesis project analyzing running fatigue via biomechanical clustering. Raw motion capture data (`.mat` files from MATLAB) is processed to extract the **Dual-Axis Framework** parameters (Duty Factor and normalized Step Frequency). Subjects are clustered by **running style** (DF_residual, SF_norm_residual at km 1.0, speed-corrected) and then analyzed for fatigue patterns within each style cluster.
+Bachelor's thesis project analyzing running fatigue via biomechanical clustering. Raw motion capture data (`.mat` files from MATLAB) is processed to extract the **Dual-Axis Framework** parameters (Duty Factor and normalized Step Frequency). Subjects are clustered by **running style** (DF, SF_norm at km 1.0, Rohdaten ohne Speed-Korrektur) using Ward hierarchical clustering (k=4). Fatigue patterns are then analyzed within the full sample via a second clustering on fatigue features (Delta_DF, Slope_DF, Delta_SF, Slope_SF), also Ward k=3.
+
+**Finale Analysekonfiguration:**
+- Stil-Clustering: Ward hierarchisch, k=4, Rohdaten (DF + SF_norm bei km 1.0)
+- Fatigue-Clustering: Ward hierarchisch, k=3, Fatigue-Features (Delta + Slope für DF und SF_norm)
+- Speed-Korrektur: bewusst abgelehnt (Speed als inhärentes Stilmerkmal; r=−.75 mit DF dokumentiert)
 
 ## Environment
 
@@ -33,17 +38,23 @@ python main.py
 # Also writes SF_hz_km1 into Input/subjects.csv
 python extract_to_csv.py
 
-# Deskriptive Statistik der Stichprobe (Schritt 0 vor main.py)
+# Schritt 0: Deskriptive Statistik der Stichprobe (vor main.py)
 python exploration/03_descriptive_stats.py
+
+# Voranalyse: Speed-Korrelation mit DF/SF_norm (Begründung Rohdaten vs. Residuen)
+python exploration/01_speed_correlation_analysis.py
+
+# Verlaufsplots DF + SF_norm für Stil- UND Fatigue-Cluster (beide automatisch)
+python exploration/22_verlaufsplot.py
+
+# Silhouette-Analyse für Stil- UND Fatigue-Cluster (beide automatisch)
+python exploration/23_silhouette_plot.py
+
+# APA-Tabellen exportieren (Stil + Fatigue, je Deskriptiv + ANOVA + Metriken)
+python exploration/21_export_apa_tables.py
 
 # (Standalone) Regenerate plots without re-running the full pipeline
 python exploration/20_create_plots.py
-
-# Post-hoc validation: speed independence of clusters (ANOVA)
-python exploration/02_cluster_speed_independence.py
-
-# Speed correlation analysis (pre-analysis)
-python exploration/01_speed_correlation_analysis.py
 ```
 
 ## Architecture
@@ -96,25 +107,26 @@ sys.path.append(str(PROJECT_ROOT / "Bachelor-Arbeit-Cluster-Analyse" / "src"))
   - `fatigue_cluster_scatter(df_f_z, labels, selection, out_dir)` — Scatter im z-transformierten Fatigue-Feature-Raum
   - `create_all_plots(df, labels, df_results, cfg, selection, df_features_z)` — ruft alle Stil-Clustering-Plots auf
 - `descriptive.py` — Deskriptive Statistik + Inferenzstatistik:
-  - `describe_clusters(df, labels, selection, cfg)` — für Stil-Clustering: MW/SD/Min/Max pro Cluster für DF, SF_norm, Speed, Anthropometrie + Fatigue-Features; ANOVA + Tukey HSD; Boxplots für Delta/Slope in `Outputs/Plots/Boxplots/`
-  - `describe_fatigue_clusters(df_features_raw, labels, selection, cfg)` — für Fatigue-Clustering: gleiche Analyse auf Delta_DF/Slope_DF/Delta_SF/Slope_SF
-  - `_test_fatigue_between_clusters()` — ANOVA + Tukey für Feature-Gruppen; speichert `anova_results_{suffix}.csv` und `tukey_results_{suffix}.csv`
-  - `_plot_fatigue_boxplots()` — einzelne Boxplots pro Feature in `Outputs/Plots/Boxplots/`; figsize=(16/2.54, 12/2.54); voller Rahmen; kein Signifikanz-Bracket (wird im Text beschrieben)
-  - `compare_style_and_fatigue_clusters()` — Kreuztabelle Laufstil- vs. Fatigue-Cluster
+  - `describe_clusters(df, labels, selection, cfg)` — für Stil-Clustering: MW/SD/Min/Max pro Cluster für DF, SF_norm, Speed, Anthropometrie + Fatigue-Features; Voraussetzungsprüfung + ANOVA + Tukey HSD; Boxplots in `Outputs/Plots/Boxplots/`
+  - `describe_fatigue_clusters(df_features_raw, labels, selection, cfg, df_long)` — für Fatigue-Clustering: AV Block 1 = DF_start, SF_start, Speed, Anthropometrie; AV Block 2 = Delta/Slope (zirkulär, Sanity Check); Boxplots zeigen alle Fatigue-Features + DF/SF_norm Start + speed_ms; Chi-Quadrat für sex + dominant_leg; benötigt df_long für Startbedingungen
+  - `_check_assumptions()` — Shapiro-Wilk + Levene; QQ-Plots; interaktive Testmethoden-Wahl (ANOVA/Welch/Kruskal, einheitlich für alle Variablen)
+  - `_plot_fatigue_boxplots()` — Boxplots pro Feature; speed_ms und Biomechanik-Spalten kommen aus df_biomech (km1-Snapshot), da fatigue_features.csv diese nicht enthält; Merge läuft über Subject ohne cluster_label-Konflikt
+  - `compare_style_and_fatigue_clusters()` — Kreuztabelle Laufstil- vs. Fatigue-Cluster + Chi-Quadrat
+  - **ANOVA-CSV enthält**: Feature, Kategorie, F, p, eta2, sig, Test, Verfahren + pro Clusterpaar: p_adj, sig, cohens_d
 
 ### Exploration Scripts: `exploration/`
 
-- `01_speed_correlation_analysis.py` — pre-analysis: correlation between speed and DF/SF_norm
-- `02_cluster_speed_independence.py` — post-hoc ANOVA: tests whether clusters differ in speed; saves `Outputs/Plots/cluster_speed_independence.png`
-- `03_descriptive_stats.py` — standalone deskriptive Statistik der Stichprobe; speichert `Outputs/Data/descriptive_stats_sample.csv`
-- `10_inspect_mat_structure.py` — inspect raw MAT file structure
-- `12_build_cluster_features.py` — standalone feature building
-- `14_compare_clustering_methods.py` — standalone clustering comparison
-- `16_pca_plot.py` — PCA visualization
-- `17_dual_axis_scatter.py` — standalone dual-axis scatter
-- `18_dual_axis_arrows_km1_5_to_9_5.py` — standalone arrow plot
-- `19_validate_step_frequency.py` — SF validation against MAT data
-- `20_create_plots.py` — regenerate all plots from saved CSVs without re-running pipeline
+**Aktiv genutzt (BA-relevant):**
+- `01_speed_correlation_analysis.py` — Voranalyse: Pearson-Korrelation Speed ~ DF/SF_norm bei km 1; erstellt zwei separate APA-Plots (`speed_correlation_DF.png`, `speed_correlation_SF_norm.png`); Ergebnis: r=−.75 (DF), r=+.45 (SF_norm); Begründungsgrundlage für Rohdaten-Entscheidung
+- `03_descriptive_stats.py` — Stichprobenbeschreibung (N=60, Geschlecht, Anthropometrie, Speed, SF_hz); speichert `Outputs/Data/descriptive_stats_sample.csv`
+- `20_create_plots.py` — regeneriert alle Stil-Clustering-Plots aus gespeicherten CSVs ohne Pipeline-Lauf
+- `21_export_apa_tables.py` — exportiert 6 APA-Tabellen: je Deskriptiv + ANOVA + Metriken für Stil- und Fatigue-Clustering; UTF-8-BOM für Google Sheets; `selected_k=4` für Stil hardcodiert
+- `22_verlaufsplot.py` — Mittelwertverlauf DF + SF_norm über km 1–10; erstellt automatisch Stil- UND Fatigue-Cluster-Plots; Dateinamen: `verlaufsplot_DF_stil.png`, `verlaufsplot_SF_norm_fatigue.png` etc.
+- `23_silhouette_plot.py` — Silhouette-Koeffizient MW±SD pro Cluster als Balkendiagramm; erstellt automatisch Stil- UND Fatigue-Plots; speichert Summary-CSV mit N/MW/SD/Min/Max/Grenzfälle
+
+**Nicht mehr aktiv genutzt:**
+- `02_cluster_speed_independence.py` — redundant: Speed-Unterschied zwischen Clustern bereits in `describe_clusters` ANOVA enthalten (F=31.15, p<.001)
+- `10_inspect_mat_structure.py`, `12_build_cluster_features.py`, `14_compare_clustering_methods.py`, `16_pca_plot.py`, `17_dual_axis_scatter.py`, `18_dual_axis_arrows_km1_5_to_9_5.py`, `19_validate_step_frequency.py` — frühe Entwicklungsskripte, nicht mehr benötigt
 
 ### Configuration: `config.py`
 
@@ -137,8 +149,12 @@ All plots follow APA publication style for Word/Google Docs:
 - **DPI**: 300
 - **Palette**: Paul Tol colorblind-safe `["#4477AA", "#EE6677", "#228833", "#CCBB44", "#66CCEE", "#AA3377", "#BBBBBB"]`
 - **Rahmen**: voller Rahmen (alle 4 Spines), Grid mit linewidth=0.5, alpha=0.5
-- **Deutsche Achsenbeschriftungen**: "Duty Factor", "Normierte Schrittfrequenz", "Proband", etc.
+- **Deutsche Achsenbeschriftungen mit Einheiten in eckigen Klammern**: `"Duty Factor [–]"`, `"Normierte Schrittfrequenz [–]"`, `"Laufgeschwindigkeit [m/s]"`, `"Slope DF [–/km]"`, `"Strecke [km]"`
+- **Einheitenkonvention**: `[–]` für dimensionslose Größen (DF, SF_norm), `[–/km]` für Slopes, `[m/s]` oder `[km/h]` für Speed, `[km]` für Distanz
 - **Van-Oeveren-Regionen entfernt** — alle Probanden laufen schnell (Stick/Sit-Bereich), Regionen wären irreführend
+- **Elbow-Plot**: keine vertikale Linie (gewähltes k nicht markiert, da manuell gewählt)
+- **Metrics-Tabelle**: bei Ward-Wahl nur Ward k-1/k/k+1 angezeigt
+- **Dendrogramm**: Cluster-Äste eingefärbt + Legende mit Cluster-Patches + Schnittlinie
 
 ### Data Flow
 
@@ -160,9 +176,11 @@ Outputs/Data/descriptive_stats_clusters_{method}_{speedflag}.csv
 Outputs/Data/fatigue_features.csv          [Delta/Slope pro Proband]
 Outputs/Data/cluster_results.csv           [Silhouette/DB/CH je Methode/k]
 Outputs/Data/cluster_labels.csv            [Cluster-Label pro Proband]
-Outputs/Data/anova_results_{suffix}.csv
+Outputs/Data/assumption_check_{suffix}.csv  [Shapiro-Wilk + Levene pro Variable/Cluster]
+Outputs/Data/anova_results_{suffix}.csv     [inkl. Spalte 'Test': ANOVA/Welch/Kruskal]
 Outputs/Data/tukey_results_{suffix}.csv    (nur wenn ANOVA signifikant)
 Outputs/Data/speed_models_km1.pkl          (nur bei Residual-Bereinigung)
+Outputs/Plots/Boxplots/qqplot_{feature}_{suffix}.png  (QQ-Plots zur Normalverteilungsprüfung)
 Outputs/Plots/elbow_plot_{suffix}.png
 Outputs/Plots/dual_axis_snapshot.png       (kein Methodensuffix)
 Outputs/Plots/dual_axis_arrows_{suffix}.png
@@ -184,7 +202,40 @@ Outputs/Plots/Fatigue/elbow_plot_{suffix}.png
 Outputs/Plots/Fatigue/metrics_table_{suffix}.png
 Outputs/Plots/Fatigue/fatigue_cluster_scatter_{suffix}.png
 Outputs/Plots/Fatigue/dendrogram_{suffix}.png  (nur hierarchisch)
-Outputs/Plots/Boxplots/boxplot_{feature}_{suffix}.png
+Outputs/Plots/Boxplots/boxplot_{feature}_{suffix}.png  (alle Fatigue-Features + DF/SF_norm/speed_ms)
+
+exploration/01_speed_correlation_analysis.py
+        |
+        v
+Outputs/Plots/speed_correlation_DF.png
+Outputs/Plots/speed_correlation_SF_norm.png
+Outputs/Data/speed_correlation_summary.csv
+
+exploration/22_verlaufsplot.py
+        |
+        v
+Outputs/Plots/verlaufsplot_DF_stil{suffix}.png
+Outputs/Plots/verlaufsplot_SF_norm_stil{suffix}.png
+Outputs/Plots/verlaufsplot_DF_fatigue{suffix}.png
+Outputs/Plots/verlaufsplot_SF_norm_fatigue{suffix}.png
+
+exploration/23_silhouette_plot.py
+        |
+        v
+Outputs/Plots/silhouette_plot_stil{suffix}.png
+Outputs/Plots/silhouette_plot_fatigue{suffix}.png
+Outputs/Data/silhouette_summary_stil{suffix}.csv
+Outputs/Data/silhouette_summary_fatigue{suffix}.csv
+
+exploration/21_export_apa_tables.py
+        |
+        v
+Outputs/Data/apa_tabelle_deskriptiv_stil_{suffix}.csv
+Outputs/Data/apa_tabelle_anova_stil_{suffix}.csv
+Outputs/Data/apa_tabelle_metriken_stil_{suffix}.csv   (Ward k=3/4/5, selected_k=4 hardcodiert)
+Outputs/Data/apa_tabelle_deskriptiv_fatigue_{suffix}.csv
+Outputs/Data/apa_tabelle_anova_fatigue_{suffix}.csv
+Outputs/Data/apa_tabelle_metriken_fatigue.csv          (Ward k=2/3/4)
 ```
 
 ### MAT File Structure

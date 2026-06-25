@@ -88,8 +88,8 @@ def _add_region_labels(ax: plt.Axes) -> None:
 
 
 def _set_axes(ax: plt.Axes) -> None:
-    ax.set_xlabel("Duty Factor")
-    ax.set_ylabel("Normierte Schrittfrequenz")
+    ax.set_xlabel("Duty Factor [–]")
+    ax.set_ylabel("Normierte Schrittfrequenz [–]")
     ax.set_xlim(XLIM)
     ax.set_ylim(YLIM)
     ax.grid(True, linewidth=0.5, alpha=0.5)
@@ -358,16 +358,25 @@ def metrics_table(
     COL_X     = [0.01, 0.22, 0.33, 0.48, 0.65, 0.83]
     COL_ALIGN = ["left", "center", "center", "center", "center", "center"]
 
-    # Gruppen aufbauen
+    # Gruppen aufbauen — wenn Ward gewählt, nur Ward anzeigen
+    sel_method  = (selection or {}).get("method", "")
+    sel_linkage = (selection or {}).get("linkage", "")
+    ward_only   = sel_method == "hierarchical" and sel_linkage == "ward"
+
     groups = []
-    for lnk in ["ward", "complete", "average", "single"]:
-        mask = (df_results["method"] == "hierarchical") & (df_results["linkage"] == lnk)
+    if ward_only:
+        mask = (df_results["method"] == "hierarchical") & (df_results["linkage"] == "ward")
         if mask.any():
-            groups.append(("hierarchical", lnk, df_results[mask].copy()))
-    for meth in ["kmeans", "hdbscan"]:
-        mask = df_results["method"] == meth
-        if mask.any():
-            groups.append((meth, None, df_results[mask].copy()))
+            groups.append(("hierarchical", "ward", df_results[mask].copy()))
+    else:
+        for lnk in ["ward", "complete", "average", "single"]:
+            mask = (df_results["method"] == "hierarchical") & (df_results["linkage"] == lnk)
+            if mask.any():
+                groups.append(("hierarchical", lnk, df_results[mask].copy()))
+        for meth in ["kmeans", "hdbscan"]:
+            mask = df_results["method"] == meth
+            if mask.any():
+                groups.append((meth, None, df_results[mask].copy()))
 
     display_rows: list[dict] = []
 
@@ -415,7 +424,11 @@ def metrics_table(
             selection and selection.get("method") == method
             and (linkage is None or selection.get("linkage") == linkage)
         ) else None
-        k_vals = sorted(set([best_k - 1, best_k, best_k + 1] + ([sel_k] if sel_k else [])))
+        if ward_only and sel_k is not None:
+            # Nur k-1, k, k+1 relativ zur gewählten k zeigen
+            k_vals = sorted(set([sel_k - 1, sel_k, sel_k + 1]))
+        else:
+            k_vals = sorted(set([best_k - 1, best_k, best_k + 1] + ([sel_k] if sel_k else [])))
 
         for k_val in k_vals:
             match  = df_grp[df_grp["k"] == k_val]
@@ -563,14 +576,11 @@ def elbow_plot(
     fig, ax = plt.subplots(figsize=(16 / 2.54, 8 / 2.54))
     ax.plot(df_km["k"], df_km["inertia_pct"], marker="o", linewidth=2.0,
             color="#4477AA", markersize=7)
-    ax.axvline(best_k, linestyle="--", color="#EE6677", linewidth=1.8,
-               label=f"Empfohlenes k = {best_k} (k-Means)")
     ax.set_xlabel("Anzahl Cluster (k)")
     ax.set_ylabel("WCSS (normiert, %)")
     ax.set_xticks(df_km["k"].tolist())
     ax.set_ylim(0, 105)
     ax.yaxis.set_major_formatter(mticker.PercentFormatter(decimals=0))
-    ax.legend(frameon=True, loc="upper right", fontsize=10)
     ax.grid(True, linewidth=0.5, alpha=0.5)
     fig.tight_layout()
     fig.subplots_adjust(left=0.12)
@@ -689,14 +699,31 @@ def dendrogram_plot(
         link_color_func=_link_color,
     )
 
-    ax.axhline(cut_y, linestyle="--", color="black", linewidth=1.5,
-               label=f"Clusteranzahl: k = {k}")
+    ax.axhline(cut_y, linestyle="--", color="black", linewidth=1.5)
     ax.set_ylabel(ylabel)
     ax.set_xlabel("Proband")
     ax.tick_params(axis="x", labelsize=8, rotation=45)
     plt.setp(ax.get_xticklabels(), ha="right", rotation_mode="anchor")
-    ax.legend(frameon=True, fontsize=10, loc="upper right")
     ax.grid(False)
+
+    # Legende: Cluster-Farben + Schnittlinie
+    legend_handles = []
+    if labels is not None:
+        for i, lab in enumerate(sorted_real):
+            color = real_to_color[lab]
+            legend_handles.append(
+                mpatches.Patch(color=color, label=f"Cluster {lab}")
+            )
+    else:
+        for i in range(k):
+            legend_handles.append(
+                mpatches.Patch(color=_PALETTE[i % len(_PALETTE)], label=f"Cluster {i+1}")
+            )
+    legend_handles.append(
+        plt.Line2D([0], [0], color="black", linewidth=1.5, linestyle="--",
+                   label=f"Schnitt k = {k}")
+    )
+    ax.legend(handles=legend_handles, frameon=True, fontsize=10, loc="upper right")
 
     fig.tight_layout()
 
@@ -729,8 +756,8 @@ def cluster_scatter_residuals(
     color_map = _build_color_map(merged["cluster_label"])
 
     fig, ax = plt.subplots(figsize=FIGSIZE)
-    ax.set_xlabel("Duty Factor Residual (z-standardisiert)")
-    ax.set_ylabel("Norm. Schrittfrequenz Residual (z-standardisiert)")
+    ax.set_xlabel("Duty Factor Residual [z]")
+    ax.set_ylabel("Norm. Schrittfrequenz Residual [z]")
     ax.grid(True, linewidth=0.4, alpha=0.6)
 
     feat_cols = [c for c in df_features_z.columns if c != "Subject"]
@@ -792,8 +819,8 @@ def fatigue_cluster_scatter(
 
     ax.axhline(0, color="gray", linewidth=0.6, linestyle="--", alpha=0.5)
     ax.axvline(0, color="gray", linewidth=0.6, linestyle="--", alpha=0.5)
-    ax.set_xlabel(f"{xcol} (z-standardisiert)")
-    ax.set_ylabel(f"{ycol} (z-standardisiert)")
+    ax.set_xlabel(f"{xcol} [z]")
+    ax.set_ylabel(f"{ycol} [z]")
     ax.legend(fontsize=9, framealpha=0.8)
 
     fig.tight_layout()

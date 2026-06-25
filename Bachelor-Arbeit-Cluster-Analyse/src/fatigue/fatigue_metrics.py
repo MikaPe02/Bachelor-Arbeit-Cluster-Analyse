@@ -154,18 +154,31 @@ def compute_subject_fatigue(df_subject: pd.DataFrame) -> dict:
             f"Mindestens 2 werden benötigt."
         )
 
+    # Phasen-Split: km 1-5 (frueh) und km 6-10 (spaet)
+    early = df_subject[df_subject["km"] <= 5]
+    late  = df_subject[df_subject["km"] >= 6]
+
+    slope_df_early  = compute_slope(early["km"], early["DF"])   if len(early)  >= 2 else float("nan")
+    slope_df_late   = compute_slope(late["km"],  late["DF"])    if len(late)   >= 2 else float("nan")
+    slope_sf_early  = compute_slope(early["km"], early["SF_norm"]) if len(early) >= 2 else float("nan")
+    slope_sf_late   = compute_slope(late["km"],  late["SF_norm"])  if len(late)  >= 2 else float("nan")
+
     return dict(
         # Duty Factor
-        DF_start  = float(df_subject["DF"].iloc[0]),
-        DF_end    = float(df_subject["DF"].iloc[-1]),
-        Delta_DF  = compute_delta(df_subject["DF"]),
-        Slope_DF  = compute_slope(df_subject["km"], df_subject["DF"]),
+        DF_start       = float(df_subject["DF"].iloc[0]),
+        DF_end         = float(df_subject["DF"].iloc[-1]),
+        Delta_DF       = compute_delta(df_subject["DF"]),
+        Slope_DF       = compute_slope(df_subject["km"], df_subject["DF"]),
+        Slope_DF_early = slope_df_early,
+        Slope_DF_late  = slope_df_late,
 
         # Normierte Schrittfrequenz
-        SF_start  = float(df_subject["SF_norm"].iloc[0]),
-        SF_end    = float(df_subject["SF_norm"].iloc[-1]),
-        Delta_SF  = compute_delta(df_subject["SF_norm"]),
-        Slope_SF  = compute_slope(df_subject["km"], df_subject["SF_norm"]),
+        SF_start       = float(df_subject["SF_norm"].iloc[0]),
+        SF_end         = float(df_subject["SF_norm"].iloc[-1]),
+        Delta_SF       = compute_delta(df_subject["SF_norm"]),
+        Slope_SF       = compute_slope(df_subject["km"], df_subject["SF_norm"]),
+        Slope_SF_early = slope_sf_early,
+        Slope_SF_late  = slope_sf_late,
     )
 
 
