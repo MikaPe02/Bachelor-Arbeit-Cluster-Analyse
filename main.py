@@ -77,21 +77,22 @@ def step1_load_data() -> pd.DataFrame:
     return df
 
 
-def step2_compute_fatigue_features(df: pd.DataFrame) -> pd.DataFrame:
+def step2_compute_fatigue_features(df: pd.DataFrame) -> tuple[pd.DataFrame, set[str]]:
     """Schritt 2: Fatigue-Features pro Proband berechnen (Delta + Slope).
 
     Diese Features werden gespeichert und fuer die spaetere Ermüdungsanalyse
     pro Cluster verwendet – aber NICHT als Clustering-Input.
+    Probanden ohne km-10-Messung werden zurueckgegeben und komplett ausgeschlossen.
     """
     print("\n=== Schritt 2: Fatigue-Features berechnen ===")
 
-    df_features = build_fatigue_feature_table(df)
+    df_features, excluded_subjects = build_fatigue_feature_table(df)
 
     print(f"  Feature-Tabelle: {df_features.shape[0]} Probanden x {df_features.shape[1]} Spalten")
     print(f"  Spalten: {list(df_features.columns)}")
     print(df_features.to_string(index=False))
 
-    return df_features
+    return df_features, excluded_subjects
 
 
 def step3_select_clustering_input(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
@@ -270,7 +271,11 @@ def main() -> None:
     df = step1_load_data()
 
     # Schritt 2: Fatigue-Features (Delta + Slope) – nur fuer Ermüdungsanalyse, nicht Clustering
-    df_features_raw = step2_compute_fatigue_features(df)
+    df_features_raw, excluded_subjects = step2_compute_fatigue_features(df)
+
+    if excluded_subjects:
+        df = df[~df["Subject"].isin(excluded_subjects)].copy()
+        print(f"  -> Hauptdatensatz gefiltert: {df['Subject'].nunique()} Probanden verbleiben.")
 
     n_subjects = len(df_features_raw)
     if n_subjects < config.MIN_SUBJECTS:

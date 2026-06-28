@@ -154,28 +154,36 @@ def compute_subject_fatigue(df_subject: pd.DataFrame) -> dict:
             f"Mindestens 2 werden benötigt."
         )
 
+    # km 10 muss vorhanden sein — Delta ist definiert als km10 − km1
+    km10_rows = df_subject[np.abs(df_subject["km"] - 10.0) <= 1e-6]
+    if len(km10_rows) == 0:
+        raise ValueError("km10_missing")
+
+    km1_row  = df_subject[np.abs(df_subject["km"] - 1.0) <= 1e-6].iloc[0]
+    km10_row = km10_rows.iloc[0]
+
     # Phasen-Split: km 1-5 (frueh) und km 6-10 (spaet)
     early = df_subject[df_subject["km"] <= 5]
     late  = df_subject[df_subject["km"] >= 6]
 
-    slope_df_early  = compute_slope(early["km"], early["DF"])   if len(early)  >= 2 else float("nan")
-    slope_df_late   = compute_slope(late["km"],  late["DF"])    if len(late)   >= 2 else float("nan")
-    slope_sf_early  = compute_slope(early["km"], early["SF_norm"]) if len(early) >= 2 else float("nan")
-    slope_sf_late   = compute_slope(late["km"],  late["SF_norm"])  if len(late)  >= 2 else float("nan")
+    slope_df_early  = compute_slope(early["km"], early["DF"])        if len(early) >= 2 else float("nan")
+    slope_df_late   = compute_slope(late["km"],  late["DF"])         if len(late)  >= 2 else float("nan")
+    slope_sf_early  = compute_slope(early["km"], early["SF_norm"])   if len(early) >= 2 else float("nan")
+    slope_sf_late   = compute_slope(late["km"],  late["SF_norm"])    if len(late)  >= 2 else float("nan")
 
     return dict(
         # Duty Factor
-        DF_start       = float(df_subject["DF"].iloc[0]),
-        DF_end         = float(df_subject["DF"].iloc[-1]),
-        Delta_DF       = compute_delta(df_subject["DF"]),
+        DF_start       = float(km1_row["DF"]),
+        DF_end         = float(km10_row["DF"]),
+        Delta_DF       = float(km10_row["DF"] - km1_row["DF"]),
         Slope_DF       = compute_slope(df_subject["km"], df_subject["DF"]),
         Slope_DF_early = slope_df_early,
         Slope_DF_late  = slope_df_late,
 
         # Normierte Schrittfrequenz
-        SF_start       = float(df_subject["SF_norm"].iloc[0]),
-        SF_end         = float(df_subject["SF_norm"].iloc[-1]),
-        Delta_SF       = compute_delta(df_subject["SF_norm"]),
+        SF_start       = float(km1_row["SF_norm"]),
+        SF_end         = float(km10_row["SF_norm"]),
+        Delta_SF       = float(km10_row["SF_norm"] - km1_row["SF_norm"]),
         Slope_SF       = compute_slope(df_subject["km"], df_subject["SF_norm"]),
         Slope_SF_early = slope_sf_early,
         Slope_SF_late  = slope_sf_late,
@@ -214,10 +222,30 @@ def build_fatigue_feature_table(df_dual_axis: pd.DataFrame) -> pd.DataFrame:
 
     subjects = df_dual_axis["Subject"].unique()
     rows = []
+    excluded = []
 
     for s in subjects:
         df_s = df_dual_axis[df_dual_axis["Subject"] == s]
-        metrics = compute_subject_fatigue(df_s)
-        rows.append({"Subject": s, **metrics})
+        try:
+            metrics = compute_subject_fatigue(df_s)
+            rows.append({"Subject": s, **metrics})
+        except ValueError as e:
+            if "km10_missing" in str(e):
+                last_km = df_s["km"].max()
+                excluded.append((s, last_km))
+            else:
+                raise
 
-    return pd.DataFrame(rows)
+    excluded_subjects: set[str] = set()
+
+    if excluded:
+        print(f"\n  AUSSCHLUSS: {len(excluded)} Proband(en) ohne km-10-Messung werden komplett ausgeschlossen.")
+        print(f"  Begruendung: Delta ist definiert als km10 - km1. Probanden ohne km10 erfuellen")
+        print(f"  diese Voraussetzung nicht; bei vermuteten Ermuedungsabruechen wuerde ihr")
+        print(f"  unvollstaendiges Delta die Ermuedung systematisch unterschaetzen.")
+        print(f"  Ausgeschlossen ({len(excluded)}):")
+        for s, last in sorted(excluded):
+            print(f"    {s}: letzter verfuegbarer km = {last}")
+            excluded_subjects.add(s)
+
+    return pd.DataFrame(rows), excluded_subjects
